@@ -29,14 +29,6 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
 
-	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-	pub enum Color {
-		Red,
-		Yellow,
-		Blue,
-		Green,
-	}
-
 	type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -47,7 +39,6 @@ pub mod pallet {
 		pub unique_id: [u8; 16],
 		// `None` assumes not for sale
 		pub price: Option<BalanceOf<T>>,
-		pub color: Color,
 		pub owner: T::AccountId,
 		pub renter: Option<T::AccountId>,
 	}
@@ -108,10 +99,6 @@ pub mod pallet {
 		NoCollectible,
 		/// You are not the owner
 		NotOwner,
-		/// Trying to transfer a collectible to yourself
-		TransferToSelf,
-		/// The bid is lower than the asking price.
-		BidPriceTooLow,
 		/// The collectible is not for sale.
 		NotForRent,
 		/// The collectible is already rented.
@@ -135,11 +122,11 @@ pub mod pallet {
 			// Make sure the caller is from a signed origin
 			let sender = ensure_signed(origin)?;
 
-			// Generate the unique_id and color using a helper function
-			let (collectible_gen_unique_id, color) = Self::gen_unique_id();
+			// Generate the unique_id using a helper function
+			let collectible_gen_unique_id = Self::gen_unique_id();
 
 			// Write new collectible to storage by calling helper function
-			Self::mint(&sender, collectible_gen_unique_id, color, price)?;
+			Self::mint(&sender, collectible_gen_unique_id, price)?;
 
 			Ok(())
 		}
@@ -184,38 +171,31 @@ pub mod pallet {
 		pub fn mint(
 			owner: &T::AccountId,
 			unique_id: [u8; 16],
-			color: Color,
 			price: Option<BalanceOf<T>>,
 		) -> Result<[u8; 16], DispatchError> {
-			// Create a new object
 			let collectible =
-				Collectible::<T> { unique_id, price, color, owner: owner.clone(), renter: None };
+				Collectible::<T> { unique_id, price, owner: owner.clone(), renter: None };
 
-			// Check if the collectible exists in the storage map
 			ensure!(
 				!CollectibleMap::<T>::contains_key(&collectible.unique_id),
 				Error::<T>::DuplicateCollectible
 			);
-			// Append collectible to OwnerOfCollectibles map
+
 			OwnerOfCollectibles::<T>::try_append(owner, collectible.unique_id)
 				.map_err(|_| Error::<T>::TooManyCollectibles)?;
 
-			// Write new collectible to storage and update the count
 			CollectibleMap::<T>::insert(collectible.unique_id, collectible);
 
-			// Deposit the "CollectibleCreated" event.
 			Self::deposit_event(Event::CollectibleCreated {
 				collectible: unique_id,
 				owner: owner.clone(),
 			});
 
-			// Returns the unique_id of the new collectible if this succeeds
 			Ok(unique_id)
 		}
 
-		// Generates and returns the unique_id and color
-		fn gen_unique_id() -> ([u8; 16], Color) {
-			// Create randomness
+		// Generates and returns the unique_id
+		fn gen_unique_id() -> [u8; 16] {
 			let random = T::CollectionRandomness::random(&b"unique_id"[..]).0;
 
 			// Create randomness payload. Multiple collectibles can be generated in the same block,
@@ -228,50 +208,10 @@ pub mod pallet {
 
 			// Turns into a byte array
 			let encoded_payload = unique_payload.encode();
-			let hash = frame_support::Hashable::blake2_128(&encoded_payload);
-
-			// Generate Color
-			if hash[0] % 2 == 0 {
-				(hash, Color::Red)
-			} else {
-				(hash, Color::Yellow)
-			}
+			frame_support::Hashable::blake2_128(&encoded_payload)
 		}
 
-		// Update storage to transfer collectible
-		pub fn do_transfer(collectible_id: [u8; 16], to: T::AccountId) -> DispatchResult {
-			// Get the collectible
-			let mut collectible =
-				CollectibleMap::<T>::get(&collectible_id).ok_or(Error::<T>::NoCollectible)?;
-			let from = collectible.owner;
-
-			ensure!(from != to, Error::<T>::TransferToSelf);
-			let mut from_owned = OwnerOfCollectibles::<T>::get(&from);
-
-			// Remove collectible from list of owned collectible.
-			if let Some(ind) = from_owned.iter().position(|&id| id == collectible_id) {
-				from_owned.swap_remove(ind);
-			} else {
-				return Err(Error::<T>::NoCollectible.into())
-			}
-			// Add collectible to the list of owned collectibles.
-			let mut to_owned = OwnerOfCollectibles::<T>::get(&to);
-			to_owned.try_push(collectible_id).map_err(|_| Error::<T>::TooManyCollectibles)?;
-
-			// Transfer succeeded, update the owner and reset the price to `None`.
-			collectible.owner = to.clone();
-			collectible.price = None;
-
-			// Write updates to storage
-			CollectibleMap::<T>::insert(&collectible_id, collectible);
-			OwnerOfCollectibles::<T>::insert(&to, to_owned);
-			OwnerOfCollectibles::<T>::insert(&from, from_owned);
-
-			Self::deposit_event(Event::TransferSucceeded { from, to, collectible: collectible_id });
-			Ok(())
-		}
-
-		pub fn do_rent_collectible(unique_id: [u8; 16], renter: T::AccountId) -> DispatchResult {
+		fn do_rent_collectible(unique_id: [u8; 16], renter: T::AccountId) -> DispatchResult {
 			// Get the collectible from the storage map
 			let mut collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
@@ -311,15 +251,11 @@ pub mod pallet {
 			Ok(())
 		}
 
-		pub fn process_rental_periods() -> DispatchResult {
+		fn process_rental_periods() -> DispatchResult {
 			let now = <timestamp::Pallet<T>>::get();
 			let rental_periods =
 				RentalPeriods::<T>::iter().filter(|(k, _)| *k <= now).collect::<Vec<_>>();
 
-			// for each rental_period, transfer the price amount from renter to owner
-			// remove the rental_period from the storage map
-			// then get the next Moment for the next rental period
-			// and insert the collectible into the storage map with the new rental_period
 			rental_periods.iter().for_each(|(k, v)| {
 				let collectible = CollectibleMap::<T>::get(v).unwrap();
 				let renter = collectible.renter.unwrap();
