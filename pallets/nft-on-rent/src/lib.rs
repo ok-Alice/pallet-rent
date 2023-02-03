@@ -82,8 +82,14 @@ pub mod pallet {
 		TransferSucceeded { from: T::AccountId, to: T::AccountId, collectible: [u8; 16] },
 		/// The price of a collectible was successfully set.
 		PriceSet { collectible: [u8; 16], price: Option<BalanceOf<T>> },
-		// A collectible was successfully sold.
+		/// A collectible was successfully rented.
 		Rented {
+			owner: T::AccountId,
+			renter: T::AccountId,
+			collectible: [u8; 16],
+			price: BalanceOf<T>,
+		},
+		RentalPeriodProcessed {
 			owner: T::AccountId,
 			renter: T::AccountId,
 			collectible: [u8; 16],
@@ -119,13 +125,9 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			price: Option<BalanceOf<T>>,
 		) -> DispatchResult {
-			// Make sure the caller is from a signed origin
 			let sender = ensure_signed(origin)?;
-
-			// Generate the unique_id using a helper function
 			let collectible_gen_unique_id = Self::gen_unique_id();
 
-			// Write new collectible to storage by calling helper function
 			Self::mint(&sender, collectible_gen_unique_id, price)?;
 
 			Ok(())
@@ -139,17 +141,15 @@ pub mod pallet {
 			unique_id: [u8; 16],
 			new_price: Option<BalanceOf<T>>,
 		) -> DispatchResult {
-			// Make sure the caller is from a signed origin
 			let sender = ensure_signed(origin)?;
-			// Ensure the collectible exists and is called by the owner
+
 			let mut collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.owner == sender, Error::<T>::NotOwner);
-			// Set the price in storage
+
 			collectible.price = new_price;
 			CollectibleMap::<T>::insert(&unique_id, collectible);
 
-			// Deposit a "PriceSet" event.
 			Self::deposit_event(Event::PriceSet { collectible: unique_id, price: new_price });
 			Ok(())
 		}
@@ -157,9 +157,14 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		#[pallet::call_index(2)]
 		pub fn rent_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
-			// Make sure the caller is from a signed origin
 			let renter = ensure_signed(origin)?;
-			// Transfer the collectible from seller to buyer.
+
+			let collectible =
+				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			ensure!(collectible.owner != renter, Error::<T>::NotOwner);
+			ensure!(collectible.price.is_some(), Error::<T>::NotForRent);
+			ensure!(collectible.renter.is_none(), Error::<T>::AlreadyRented);
+
 			Self::do_rent_collectible(unique_id, renter)?;
 			Ok(())
 		}
@@ -206,13 +211,11 @@ pub mod pallet {
 				frame_system::Pallet::<T>::block_number(),
 			);
 
-			// Turns into a byte array
 			let encoded_payload = unique_payload.encode();
 			frame_support::Hashable::blake2_128(&encoded_payload)
 		}
 
 		fn do_rent_collectible(unique_id: [u8; 16], renter: T::AccountId) -> DispatchResult {
-			// Get the collectible from the storage map
 			let mut collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
@@ -221,14 +224,12 @@ pub mod pallet {
 
 			// Mutating state with a balance transfer, so nothing is allowed to fail after this.
 			if let Some(price) = collectible.price {
-				// Transfer the amount from buyer to seller
 				T::Currency::transfer(
 					&renter,
 					&owner,
 					price,
 					frame_support::traits::ExistenceRequirement::KeepAlive,
 				)?;
-				// Deposit sold event
 				Self::deposit_event(Event::Rented {
 					renter: renter.clone(),
 					owner: owner.clone(),
@@ -239,13 +240,14 @@ pub mod pallet {
 				return Err(Error::<T>::NotForRent.into())
 			}
 
-			let now = <timestamp::Pallet<T>>::get();
-			let next_rental_period: T::Moment = now + T::Moment::from(15u32);
-
-			// Set new renter for collectible
 			collectible.renter = Some(renter.clone());
 
+			let now = <timestamp::Pallet<T>>::get();
+			let next_rental_period: T::Moment = now + T::Moment::from(100u32);
+
 			CollectibleMap::<T>::insert(&unique_id, collectible);
+			RenterOfCollectibles::<T>::try_append(&renter, unique_id)
+				.map_err(|_| Error::<T>::TooManyCollectibles)?;
 			RentalPeriods::<T>::insert(next_rental_period, &unique_id);
 
 			Ok(())
@@ -272,8 +274,15 @@ pub mod pallet {
 
 				RentalPeriods::<T>::remove(k);
 
-				let next_rental_period: T::Moment = now + T::Moment::from(15u32);
+				let next_rental_period: T::Moment = now + T::Moment::from(100u32);
 				RentalPeriods::<T>::insert(next_rental_period, v);
+
+				Self::deposit_event(Event::RentalPeriodProcessed {
+					renter,
+					owner,
+					collectible: *v,
+					price,
+				});
 			});
 
 			Ok(())
