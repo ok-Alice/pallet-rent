@@ -144,28 +144,9 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Transfer a collectible to another account.
-		/// Any account that holds a collectible can send it to another account.
-		/// Transfer resets the price of the collectible, marking it not for sale.
-		#[pallet::weight(0)]
-		#[pallet::call_index(1)]
-		pub fn transfer(
-			origin: OriginFor<T>,
-			to: T::AccountId,
-			unique_id: [u8; 16],
-		) -> DispatchResult {
-			// Make sure the caller is from a signed origin
-			let from = ensure_signed(origin)?;
-			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.owner == from, Error::<T>::NotOwner);
-			Self::do_transfer(unique_id, to)?;
-			Ok(())
-		}
-
 		/// Update the collectible price and write to storage.
 		#[pallet::weight(0)]
-		#[pallet::call_index(2)]
+		#[pallet::call_index(1)]
 		pub fn set_price(
 			origin: OriginFor<T>,
 			unique_id: [u8; 16],
@@ -187,7 +168,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		#[pallet::call_index(3)]
+		#[pallet::call_index(2)]
 		pub fn rent_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			// Make sure the caller is from a signed origin
 			let renter = ensure_signed(origin)?;
