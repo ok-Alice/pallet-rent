@@ -212,7 +212,11 @@ pub mod pallet {
 
 		#[pallet::weight(0)]
 		#[pallet::call_index(5)]
-		pub fn set_recurring(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
+		pub fn set_recurring(
+			origin: OriginFor<T>,
+			unique_id: [u8; 16],
+			recurring: bool,
+		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
@@ -225,7 +229,7 @@ pub mod pallet {
 
 			let mut lessee_rental = lessee_rental.unwrap();
 
-			lessee_rental.recurring = true;
+			lessee_rental.recurring = recurring;
 
 			LesseeCollectiblesDoubleMap::<T>::insert(sender, &unique_id, lessee_rental);
 
