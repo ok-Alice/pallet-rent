@@ -15,16 +15,6 @@ scale-info = { version = "2.1.1", default-features = false, features = [
     "derive",
 ] }
 
-pallet-scheduler = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.36" }
-pallet-timestamp = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.36" }
-
 [features]
 default = ["std"]
-std = [
-    "frame-support/std",
-    "frame-system/std",
-    "codec/std",
-    "scale-info/std",
-    "pallet-scheduler/std",
-    "pallet-timestamp/std",
-]
+std = ["frame-support/std", "frame-system/std", "codec/std", "scale-info/std"]

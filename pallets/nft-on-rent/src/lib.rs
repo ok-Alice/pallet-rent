@@ -8,23 +8,26 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 
 	use frame_support::{
-		inherent::Vec,
-		traits::{Currency, Randomness},
+		ensure,
+		traits::{Currency, Get, Randomness},
 	};
 
-	use pallet_timestamp::{self as timestamp};
+	use scale_info::prelude::vec;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config + timestamp::Config + pallet_scheduler::Config {
+	pub trait Config: frame_system::Config {
 		type Currency: Currency<Self::AccountId>;
 		type CollectionRandomness: Randomness<Self::Hash, Self::BlockNumber>;
 
 		#[pallet::constant]
 		type MaximumOwned: Get<u32>;
+
+		#[pallet::constant]
+		type MaximumRentablesPerBlock: Get<u32>;
 
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
@@ -39,8 +42,8 @@ pub mod pallet {
 		pub unique_id: [u8; 16],
 		// `None` assumes not for sale
 		pub price_per_block: Option<BalanceOf<T>>,
-		pub original_lessor: T::AccountId,
-		pub current_lessor: Option<T::AccountId>,
+		pub lessor: T::AccountId,
+		pub current_lessee: Option<T::AccountId>,
 	}
 
 	/// Maps the Collectible struct to the unique_id.
@@ -62,30 +65,44 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type RentableCollectibles<T> = StorageValue<_, [u8; 16], ValueQuery>;
 
-	/// Track the collectibles rented by each account.
-	#[pallet::storage]
-	pub(super) type LesseeOfCollectibles<T: Config> = StorageMap<
-		_,
-		Twox64Concat,
-		T::AccountId,
-		BoundedVec<[u8; 16], T::MaximumOwned>,
-		ValueQuery,
-	>;
+	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	#[scale_info(skip_type_params(T))]
+	pub struct RentalPeriodConfig<T: Config> {
+		collectible: [u8; 16],
+		period: T::BlockNumber,
+		recurring: bool,
+	}
 
 	/// Track rental periods.
 	#[pallet::storage]
-	pub(super) type RentalPeriods<T: Config> =
-		StorageMap<_, Twox64Concat, T::Moment, [u8; 16], ValueQuery>;
+	pub(super) type RentalPeriods<T: Config> = StorageMap<
+		_,
+		Twox64Concat,
+		T::BlockNumber,
+		BoundedVec<RentalPeriodConfig<T>, T::MaximumRentablesPerBlock>,
+		ValueQuery,
+	>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new collectible was successfully created.
-		CollectibleCreated { collectible: [u8; 16], current_lessor: T::AccountId },
+		CollectibleCreated {
+			collectible: [u8; 16],
+			lessor: T::AccountId,
+			current_lessee: Option<T::AccountId>,
+		},
 		/// A collectible was successfully transferred.
-		TransferSucceeded { from: T::AccountId, to: T::AccountId, collectible: [u8; 16] },
+		TransferSucceeded {
+			from: T::AccountId,
+			to: T::AccountId,
+			collectible: [u8; 16],
+		},
 		/// The price of a collectible was successfully set.
-		PriceSet { collectible: [u8; 16], price_per_block: BalanceOf<T> },
+		RentSet {
+			collectible: [u8; 16],
+			price_per_block: BalanceOf<T>,
+		},
 		/// A collectible was successfully rented.
 		Rented {
 			lessor: T::AccountId,
@@ -93,11 +110,10 @@ pub mod pallet {
 			collectible: [u8; 16],
 			total_rent_price: BalanceOf<T>,
 		},
-		RentalPeriodProcessed {
+		RentalPeriodEnded {
 			lessor: T::AccountId,
 			lessee: T::AccountId,
 			collectible: [u8; 16],
-			price: BalanceOf<T>,
 		},
 	}
 
@@ -123,10 +139,7 @@ pub mod pallet {
 
 	// Pallet callable functions
 	#[pallet::call]
-	impl<T: Config> Pallet<T>
-	// where
-	// 	<T as pallet_scheduler::Config>::RuntimeCall: From<Call<T>>,
-	{
+	impl<T: Config> Pallet<T> {
 		/// Create a new unique collectible.
 		///
 		/// The actual collectible creation is done in the `mint()` function.
@@ -153,42 +166,25 @@ pub mod pallet {
 
 			let mut collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.original_lessor == sender, Error::<T>::NotLessor);
+			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
 
 			collectible.price_per_block = Some(price_per_block);
 
 			CollectibleMap::<T>::insert(&unique_id, collectible);
 			RentableCollectibles::<T>::put(unique_id);
 
-			Self::deposit_event(Event::PriceSet { collectible: unique_id, price_per_block });
+			Self::deposit_event(Event::RentSet { collectible: unique_id, price_per_block });
 			Ok(())
 		}
 
-		/// Attempt to implement the pallet_scheduler
-		// #[pallet::weight(0)]
-		// #[pallet::call_index(2)]
-		// pub fn rent_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
-		// 	let mut name: [u8; 32] = [0; 32];
-		// 	name[..16].copy_from_slice(&unique_id);
-		// 	name[16..].copy_from_slice(b"rental_period");
-
-		// 	let task_name = frame_support::traits::schedule::v3::TaskName::from(name);
-
-		// 	<pallet_scheduler::Pallet<T>>::schedule_named(
-		// 		origin,
-		// 		task_name,
-		// 		<frame_system::Pallet<T>>::block_number(),
-		// 		None,
-		// 		0,
-		// 		Box::new(Call::<T>::something { unique_id }.into()),
-		// 	)?;
-
-		// 	Ok(())
-		// }
-
 		#[pallet::weight(0)]
 		#[pallet::call_index(3)]
-		pub fn rent(origin: OriginFor<T>, unique_id: [u8; 16], blocks: u32) -> DispatchResult {
+		pub fn rent(
+			origin: OriginFor<T>,
+			unique_id: [u8; 16],
+			blocks: u32,
+			recurring: bool,
+		) -> DispatchResult {
 			let lessee = ensure_signed(origin)?;
 
 			ensure!(blocks >= 30, Error::<T>::RentalPeriodTooShort);
@@ -196,10 +192,10 @@ pub mod pallet {
 
 			let collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.original_lessor != lessee, Error::<T>::CannotRentOwnCollectible);
-			ensure!(collectible.current_lessor.is_some(), Error::<T>::RentNotAvailable);
+			ensure!(collectible.lessor != lessee, Error::<T>::CannotRentOwnCollectible);
+			ensure!(collectible.current_lessee.is_none(), Error::<T>::RentNotAvailable);
 
-			Self::do_rent_collectible(unique_id, lessee, blocks)?;
+			Self::do_rent_collectible(unique_id, lessee, blocks, recurring)?;
 			Ok(())
 		}
 	}
@@ -214,8 +210,8 @@ pub mod pallet {
 			let collectible = Collectible::<T> {
 				unique_id,
 				price_per_block: None,
-				original_lessor: lessor.clone(),
-				current_lessor: Some(lessor.clone()),
+				lessor: lessor.clone(),
+				current_lessee: None,
 			};
 
 			ensure!(
@@ -230,7 +226,8 @@ pub mod pallet {
 
 			Self::deposit_event(Event::CollectibleCreated {
 				collectible: unique_id,
-				current_lessor: lessor.clone(),
+				lessor: lessor.clone(),
+				current_lessee: None,
 			});
 
 			Ok(unique_id)
@@ -240,11 +237,12 @@ pub mod pallet {
 			unique_id: [u8; 16],
 			lessee: T::AccountId,
 			blocks: u32,
+			recurring: bool,
 		) -> DispatchResult {
 			let mut collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
-			let lessor = &collectible.original_lessor;
+			let lessor = &collectible.lessor;
 			let lessee = lessee.clone();
 
 			let total_rent_price = collectible.price_per_block.unwrap() * blocks.into();
@@ -264,55 +262,24 @@ pub mod pallet {
 				total_rent_price,
 			});
 
-			collectible.current_lessor = Some(lessee.clone());
+			collectible.current_lessee = Some(lessee.clone());
 
-			let now = <timestamp::Pallet<T>>::get();
-			let next_rental_period: T::Moment = now + T::Moment::from(100u32);
+			let block_number: T::BlockNumber = blocks.into();
+
+			let next_rental_period: T::BlockNumber =
+				block_number + frame_system::Pallet::<T>::block_number();
+
+			let rental_config = RentalPeriodConfig {
+				collectible: unique_id,
+				period: next_rental_period,
+				recurring,
+			};
+
+			Self::insert_rental_period(rental_config).unwrap();
 
 			CollectibleMap::<T>::insert(&unique_id, collectible);
-			LesseeOfCollectibles::<T>::try_append(&lessee, unique_id)
-				.map_err(|_| Error::<T>::TooManyCollectibles)?;
-			RentalPeriods::<T>::insert(next_rental_period, &unique_id);
-
 			Ok(())
 		}
-
-		/// This function is for processing periodic rent payments executed from the `on_finalize`
-		/// triggered hook
-		// fn process_rental_periods() -> DispatchResult {
-		// 	let now = <timestamp::Pallet<T>>::get();
-		// 	let rental_periods =
-		// 		RentalPeriods::<T>::iter().filter(|(k, _)| *k <= now).collect::<Vec<_>>();
-
-		// 	rental_periods.iter().for_each(|(k, v)| {
-		// 		let collectible = CollectibleMap::<T>::get(v).unwrap();
-		// 		let lessee = collectible.current_lessor.unwrap();
-		// 		let lessor = collectible.original_lessor;
-		// 		let price = collectible.price_per_block.unwrap();
-
-		// 		T::Currency::transfer(
-		// 			&lessee,
-		// 			&lessor,
-		// 			price,
-		// 			frame_support::traits::ExistenceRequirement::KeepAlive,
-		// 		)
-		// 		.unwrap();
-
-		// 		RentalPeriods::<T>::remove(k);
-
-		// 		let next_rental_period: T::Moment = now + T::Moment::from(100u32);
-		// 		RentalPeriods::<T>::insert(next_rental_period, v);
-
-		// 		Self::deposit_event(Event::RentalPeriodProcessed {
-		// 			lessee,
-		// 			lessor,
-		// 			collectible: *v,
-		// 			price,
-		// 		});
-		// 	});
-
-		// 	Ok(())
-		// }
 
 		// Generates and returns the unique_id
 		fn _gen_unique_id() -> [u8; 16] {
@@ -329,13 +296,76 @@ pub mod pallet {
 			let encoded_payload = unique_payload.encode();
 			frame_support::Hashable::blake2_128(&encoded_payload)
 		}
+
+		fn insert_rental_period(rental_config: RentalPeriodConfig<T>) -> DispatchResult {
+			let mut block_number: T::BlockNumber = rental_config.period;
+
+			let mut rental_periods = RentalPeriods::<T>::get(block_number);
+
+			// try to append the collectible to the rental period
+			// if it fails (because the rental period is already full), increment the rental period
+			// and try again
+			while let Err(_) = rental_periods.try_append(&mut vec![rental_config.clone()]) {
+				let next_block_number: T::BlockNumber = (1 as u32).into();
+				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
+				rental_periods = RentalPeriods::<T>::get(block_number);
+			}
+
+			RentalPeriods::<T>::insert(block_number, rental_periods);
+			Ok(())
+		}
+
+		fn process_rental_periods(n: T::BlockNumber) {
+			let rental_periods = RentalPeriods::<T>::get(n);
+
+			for rental_config in rental_periods {
+				let collectible_id = rental_config.collectible;
+
+				let collectible = CollectibleMap::<T>::get(&collectible_id)
+					.ok_or(Error::<T>::NoCollectible)
+					.unwrap();
+
+				let lessor = collectible.lessor;
+				let lessee = collectible.current_lessee.unwrap();
+
+				if n != rental_config.period || !rental_config.recurring {
+					Self::deposit_event(Event::RentalPeriodEnded {
+						lessee: lessee.clone(),
+						lessor: lessor.clone(),
+						collectible: collectible_id,
+					});
+
+					continue
+				}
+
+				let total_rent_price = collectible.price_per_block.unwrap();
+
+				// Mutating state with a balance transfer, so nothing is allowed to fail after
+				// this.
+				T::Currency::transfer(
+					&lessee,
+					&lessor,
+					total_rent_price,
+					frame_support::traits::ExistenceRequirement::KeepAlive,
+				)
+				.unwrap();
+
+				if rental_config.recurring {
+					Self::insert_rental_period(rental_config).unwrap();
+				}
+			}
+
+			RentalPeriods::<T>::remove(n);
+		}
 	}
 
-	/// This hook is called after a block is finalized and will execute the periodic rent payments method
-	// #[pallet::hooks]
-	// impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-	// 	fn on_finalize(_n: T::BlockNumber) {
-	// 		Self::process_rental_periods().unwrap();
-	// 	}
-	// }
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_initialize(n: T::BlockNumber) -> Weight {
+			Self::process_rental_periods(n);
+
+			// TODO: Calculate weight
+			Weight::from_parts(0, 0)
+		}
+	}
 }

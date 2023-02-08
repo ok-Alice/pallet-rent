@@ -6,7 +6,6 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use frame_support::traits::EqualPrivilegeOnly;
 pub use nft_on_rent;
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
@@ -208,9 +207,9 @@ impl frame_system::Config for Runtime {
 impl nft_on_rent::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
-	// type Scheduler = Scheduler;
 	type CollectionRandomness = RandomnessCollectiveFlip;
 	type MaximumOwned = frame_support::pallet_prelude::ConstU32<100>;
+	type MaximumRentablesPerBlock = frame_support::pallet_prelude::ConstU32<100>;
 }
 
 impl pallet_randomness_collective_flip::Config for Runtime {}
@@ -238,19 +237,6 @@ impl pallet_grandpa::Config for Runtime {
 
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<32>;
-}
-
-impl pallet_scheduler::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeOrigin = RuntimeOrigin;
-	type RuntimeCall = RuntimeCall;
-	type PalletsOrigin = OriginCaller;
-	type OriginPrivilegeCmp = EqualPrivilegeOnly;
-	type MaximumWeight = MaximumBlockWeight;
-	type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
-	type MaxScheduledPerBlock = ConstU32<10>;
-	type WeightInfo = ();
-	type Preimages = ();
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -310,7 +296,6 @@ construct_runtime!(
 		Aura: pallet_aura,
 		Grandpa: pallet_grandpa,
 		NftOnRent: nft_on_rent,
-		Scheduler: pallet_scheduler,
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
