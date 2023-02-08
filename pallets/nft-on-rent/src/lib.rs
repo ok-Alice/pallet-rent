@@ -102,6 +102,8 @@ pub mod pallet {
 		RentMadeUnavailable { collectible: [u8; 16] },
 		/// Collectible rent made recurring.
 		RentalMadeRecurring { collectible: [u8; 16] },
+		/// Cancelled recurring rental since payment was not made.
+		ErrorTransferingRent { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
 	}
 
 	#[pallet::error]
@@ -397,13 +399,22 @@ pub mod pallet {
 
 				// Mutating state with a balance transfer, so nothing is allowed to fail after
 				// this.
-				T::Currency::transfer(
+				if let Err(_) = T::Currency::transfer(
 					&lessee,
 					&collectible.lessor,
 					total_rent_price,
 					frame_support::traits::ExistenceRequirement::KeepAlive,
-				)
-				.unwrap();
+				) {
+					Self::_remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
+
+					Self::deposit_event(Event::ErrorTransferingRent {
+						lessee: lessee.clone(),
+						lessor: collectible.lessor.clone(),
+						collectible: collectible_id,
+					});
+
+					continue
+				}
 
 				Self::deposit_event(Event::RentPayed {
 					lessee: lessee.clone(),
@@ -419,6 +430,19 @@ pub mod pallet {
 			}
 
 			PendingRentals::<T>::remove(n);
+		}
+
+		fn _remove_lessee_from_collectible(
+			lessee: &T::AccountId,
+			collectible: &mut Collectible<T>,
+		) -> DispatchResult {
+			let collectible_id = collectible.unique_id;
+			LesseeCollectiblesDoubleMap::<T>::remove(&lessee, &collectible_id);
+
+			collectible.lessee = None;
+			CollectibleMap::<T>::insert(&collectible_id, collectible);
+
+			Ok(())
 		}
 	}
 
