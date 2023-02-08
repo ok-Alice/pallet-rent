@@ -93,28 +93,21 @@ pub mod pallet {
 			current_lessee: Option<T::AccountId>,
 		},
 		/// A collectible was successfully transferred.
-		TransferSucceeded {
-			from: T::AccountId,
-			to: T::AccountId,
-			collectible: [u8; 16],
-		},
+		TransferSucceeded { from: T::AccountId, to: T::AccountId, collectible: [u8; 16] },
 		/// The price of a collectible was successfully set.
-		RentSet {
-			collectible: [u8; 16],
-			price_per_block: BalanceOf<T>,
-		},
+		RentSet { collectible: [u8; 16], price_per_block: BalanceOf<T> },
 		/// A collectible was successfully rented.
-		Rented {
+		RentPayed {
 			lessor: T::AccountId,
 			lessee: T::AccountId,
 			collectible: [u8; 16],
 			total_rent_price: BalanceOf<T>,
+			period: T::BlockNumber,
 		},
-		RentalPeriodEnded {
-			lessor: T::AccountId,
-			lessee: T::AccountId,
-			collectible: [u8; 16],
-		},
+		/// A rental period was successfully added.
+		RentalPeriodAdded { collectible: [u8; 16], period: T::BlockNumber, recurring: bool },
+		/// A rental period was successfully ended.
+		RentalPeriodEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
 	}
 
 	#[pallet::error]
@@ -255,11 +248,12 @@ pub mod pallet {
 				frame_support::traits::ExistenceRequirement::KeepAlive,
 			)?;
 
-			Self::deposit_event(Event::Rented {
+			Self::deposit_event(Event::RentPayed {
 				lessee: lessee.clone(),
 				lessor: lessor.clone(),
 				collectible: unique_id,
 				total_rent_price,
+				period: blocks.into(),
 			});
 
 			collectible.current_lessee = Some(lessee.clone());
@@ -312,6 +306,13 @@ pub mod pallet {
 			}
 
 			RentalPeriods::<T>::insert(block_number, rental_periods);
+
+			Self::deposit_event(Event::RentalPeriodAdded {
+				collectible: rental_config.collectible,
+				period: rental_config.period,
+				recurring: rental_config.recurring,
+			});
+
 			Ok(())
 		}
 
@@ -350,6 +351,15 @@ pub mod pallet {
 				)
 				.unwrap();
 
+				Self::deposit_event(Event::RentPayed {
+					lessee: lessee.clone(),
+					lessor: lessor.clone(),
+					collectible: collectible_id,
+					total_rent_price,
+					period: rental_config.period.into(),
+				});
+
+				// Add the rental period again if recurring
 				if rental_config.recurring {
 					Self::insert_rental_period(rental_config).unwrap();
 				}
