@@ -527,6 +527,8 @@ pub mod pallet {
 				rental_periods = PendingRentals::<T>::get(block_number);
 			}
 
+			PendingRentals::<T>::insert(block_number, rental_periods);
+
 			block_number
 		}
 
