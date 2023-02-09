@@ -5,7 +5,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
+	use frame_system::pallet_prelude::{OriginFor, *};
 
 	use frame_support::{
 		ensure,
@@ -74,6 +74,10 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
+	#[pallet::storage]
+	pub(super) type AccountEquipsMap<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -104,6 +108,10 @@ pub mod pallet {
 		RentalMadeRecurring { collectible: [u8; 16] },
 		/// Cancelled recurring rental since payment was not made.
 		ErrorTransferingRent { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
+		/// Collectible equipped by account.
+		CollectibleEquipped { account: T::AccountId, collectible: [u8; 16] },
+		/// Collectible unequipped by account.
+		CollectibleUnequipped { account: T::AccountId, collectible: [u8; 16] },
 	}
 
 	#[pallet::error]
@@ -126,6 +134,10 @@ pub mod pallet {
 		RentalPeriodTooShort,
 		/// The rentale period is too long.
 		RentalPeriodTooLong,
+		/// Lessor cannot perform operation while collectible is rented.
+		NotAllowedWhileRented,
+		/// Account reached max equiped collectibles.
+		TooManyCollectiblesEquiped,
 	}
 
 	// Pallet callable functions
@@ -241,6 +253,55 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		#[pallet::weight(0)]
+		#[pallet::call_index(6)]
+		pub fn equip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			let collectible =
+				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+
+			let account = match collectible.lessee {
+				Some(lessee) => {
+					ensure!(lessee == sender, Error::<T>::NotAllowdWhileRented);
+					lessee
+				},
+				None => {
+					ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+					collectible.lessor
+				},
+			};
+
+			let mut vec = AccountEquipsMap::<T>::get(&account).unwrap_or_default();
+			vec.try_push(unique_id).map_err(|_| Error::<T>::TooManyCollectiblesEquiped)?;
+			AccountEquipsMap::<T>::insert(&account, vec);
+
+			Self::deposit_event(Event::CollectibleEquipped {
+				account: sender,
+				collectible: unique_id,
+			});
+
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[pallet::call_index(7)]
+		pub fn unequip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			let collectible =
+				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+
+			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+
+			Self::deposit_event(Event::CollectibleUnequipped {
+				account: sender,
+				collectible: unique_id,
+			});
+
+			Ok(())
+		}
 	}
 
 	// Pallet internal functions
@@ -316,7 +377,10 @@ pub mod pallet {
 
 			Self::insert_rental_period(lessee, unique_id, rental_config).unwrap();
 
-			CollectibleMap::<T>::insert(&unique_id, collectible);
+			CollectibleMap::<T>::insert(&unique_id, &collectible);
+
+			Self::_unequip_collectible_from_account(collectible.lessor.clone(), unique_id);
+
 			Ok(())
 		}
 
@@ -380,10 +444,7 @@ pub mod pallet {
 					.unwrap();
 
 				if !collectible.rentable || None == collectible.lessee || !rental_config.recurring {
-					LesseeCollectiblesDoubleMap::<T>::remove(&lessee, &collectible_id);
-
-					collectible.lessee = None;
-					CollectibleMap::<T>::insert(&collectible_id, &collectible);
+					Self::_remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
 
 					Self::deposit_event(Event::RentalPeriodEnded {
 						lessee: lessee.clone(),
@@ -442,7 +503,15 @@ pub mod pallet {
 			collectible.lessee = None;
 			CollectibleMap::<T>::insert(&collectible_id, collectible);
 
+			Self::_unequip_collectible_from_account(lessee.clone(), collectible_id);
+
 			Ok(())
+		}
+
+		fn _unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
+			let mut equiped = AccountEquipsMap::<T>::get(&account).unwrap_or_default();
+			equiped.retain(|c| c != &collectible_id);
+			AccountEquipsMap::<T>::insert(&account, equiped);
 		}
 	}
 
