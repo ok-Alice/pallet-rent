@@ -56,15 +56,22 @@ pub mod pallet {
 
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
-	pub struct RentalPeriodConfig {
+	pub struct RentalPeriodConfig<T: Config> {
 		rental_periodic_interval: u32,
+		next_rent_block: T::BlockNumber,
 		recurring: bool,
 	}
 
 	/// Maps the account id to the collectibles rented and the rental configuration.
 	#[pallet::storage]
-	pub(super) type LesseeCollectiblesDoubleMap<T: Config> =
-		StorageDoubleMap<_, Twox64Concat, T::AccountId, Twox64Concat, [u8; 16], RentalPeriodConfig>;
+	pub(super) type LesseeCollectiblesDoubleMap<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		T::AccountId,
+		Twox64Concat,
+		[u8; 16],
+		RentalPeriodConfig<T>,
+	>;
 
 	/// Track rental periods.
 	#[pallet::storage]
@@ -72,7 +79,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		T::BlockNumber,
-		BoundedVec<(T::AccountId, [u8; 16]), T::MaximumRentablesPerBlock>,
+		BoundedVec<([u8; 16], T::AccountId), T::MaximumRentablesPerBlock>,
 		ValueQuery,
 	>;
 
@@ -267,6 +274,53 @@ pub mod pallet {
 
 		#[pallet::weight(0)]
 		#[pallet::call_index(6)]
+		pub fn extend_rent(
+			origin: OriginFor<T>,
+			unique_id: [u8; 16],
+			blocks: T::BlockNumber,
+		) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			let collectible =
+				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			ensure!(collectible.lessee == Some(sender.clone()), Error::<T>::NotLessor);
+
+			let lessee = collectible.lessee.unwrap();
+
+			let lessee_rental = LesseeCollectiblesDoubleMap::<T>::get(&sender, &unique_id);
+
+			match lessee_rental {
+				Some(lessee_rental) => {
+					let next_rent_block = lessee_rental.next_rent_block;
+
+					let mut pending_rental = PendingRentals::<T>::get(&next_rent_block);
+
+					pending_rental.retain(|(id, _)| *id != unique_id);
+
+					PendingRentals::<T>::insert(&next_rent_block, &pending_rental);
+
+					let next_rent_block = Self::_append_pending_rental_to_available_block(
+						Some(next_rent_block + blocks),
+						lessee_rental.rental_periodic_interval,
+						collectible.unique_id,
+						lessee.clone(),
+					);
+
+					let rental_config = RentalPeriodConfig { next_rent_block, ..lessee_rental };
+
+					// overwrite rental configuration for the collectible
+					LesseeCollectiblesDoubleMap::<T>::insert(&lessee, &unique_id, &rental_config);
+
+					PendingRentals::<T>::insert(&next_rent_block, pending_rental);
+				},
+				None => return Err(Error::<T>::NoCollectible.into()),
+			}
+
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[pallet::call_index(7)]
 		pub fn equip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -297,7 +351,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		#[pallet::call_index(7)]
+		#[pallet::call_index(8)]
 		pub fn unequip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -380,8 +434,25 @@ pub mod pallet {
 
 			collectible.lessee = Some(lessee.clone());
 
+			let mut block_number =
+				frame_system::Pallet::<T>::block_number() + rent_periodic_interval.into();
+
+			let mut rental_periods = PendingRentals::<T>::get(block_number);
+
+			// try to append the collectible to the rental period
+			// if it fails (because the rental period is already full), increment the rental period
+			// and try again
+			while let Err(_) =
+				rental_periods.try_append(&mut vec![(collectible.unique_id, lessee.clone())])
+			{
+				let next_block_number: T::BlockNumber = (1 as u32).into();
+				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
+				rental_periods = PendingRentals::<T>::get(block_number);
+			}
+
 			let rental_config = RentalPeriodConfig {
 				rental_periodic_interval: rent_periodic_interval.into(),
+				next_rent_block: block_number,
 				recurring,
 			};
 
@@ -416,38 +487,55 @@ pub mod pallet {
 		fn insert_rental_period(
 			lessee: T::AccountId,
 			collectible: [u8; 16],
-			rental_config: RentalPeriodConfig,
+			rental_config: RentalPeriodConfig<T>,
 		) -> DispatchResult {
-			let mut block_number = frame_system::Pallet::<T>::block_number() +
-				rental_config.rental_periodic_interval.into();
+			let next_rent_block = Self::_append_pending_rental_to_available_block(
+				None,
+				rental_config.rental_periodic_interval,
+				collectible,
+				lessee,
+			);
+
+			Self::deposit_event(Event::RentalPeriodAdded { collectible, next_rent_block });
+
+			Ok(())
+		}
+
+		fn _append_pending_rental_to_available_block(
+			starting_block_number: Option<T::BlockNumber>,
+			rental_periodic_interval: u32,
+			collectible_id: [u8; 16],
+			lessee: T::AccountId,
+		) -> T::BlockNumber {
+			let starting_block_number = match starting_block_number {
+				Some(block_number) => block_number,
+				None => frame_system::Pallet::<T>::block_number(),
+			};
+
+			let mut block_number = starting_block_number + rental_periodic_interval.into();
 
 			let mut rental_periods = PendingRentals::<T>::get(block_number);
 
 			// try to append the collectible to the rental period
 			// if it fails (because the rental period is already full), increment the rental period
 			// and try again
-			while let Err(_) = rental_periods.try_append(&mut vec![(lessee.clone(), collectible)]) {
+			while let Err(_) =
+				rental_periods.try_append(&mut vec![(collectible_id, lessee.clone())])
+			{
 				let next_block_number: T::BlockNumber = (1 as u32).into();
 				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
 				rental_periods = PendingRentals::<T>::get(block_number);
 			}
 
-			PendingRentals::<T>::insert(block_number, rental_periods);
-
-			Self::deposit_event(Event::RentalPeriodAdded {
-				collectible,
-				next_rent_block: block_number,
-			});
-
-			Ok(())
+			block_number
 		}
 
 		fn process_rental_periods(n: T::BlockNumber) {
 			let rentals = PendingRentals::<T>::get(n);
 
 			for rental in rentals {
-				let lessee = rental.0.clone();
-				let collectible_id = rental.1.clone();
+				let collectible_id = rental.0.clone();
+				let lessee = rental.1.clone();
 
 				let rental_config =
 					LesseeCollectiblesDoubleMap::<T>::get(&lessee, &collectible_id).unwrap();
