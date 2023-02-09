@@ -45,6 +45,8 @@ pub mod pallet {
 		pub lessor: T::AccountId,
 		pub lessee: Option<T::AccountId>,
 		pub rentable: bool,
+		pub minimum_rental_period: Option<u32>,
+		pub maximum_rental_period: Option<u32>,
 	}
 
 	/// Maps the Collectible struct to the unique_id.
@@ -164,6 +166,8 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			unique_id: [u8; 16],
 			price_per_block: BalanceOf<T>,
+			minimum_rental_period: u32,
+			maximum_rental_period: u32,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -173,6 +177,8 @@ pub mod pallet {
 
 			collectible.price_per_block = Some(price_per_block);
 			collectible.rentable = true;
+			collectible.minimum_rental_period = Some(minimum_rental_period);
+			collectible.maximum_rental_period = Some(maximum_rental_period);
 
 			CollectibleMap::<T>::insert(&unique_id, collectible);
 
@@ -193,15 +199,20 @@ pub mod pallet {
 		) -> DispatchResult {
 			let lessee = ensure_signed(origin)?;
 
-			ensure!(blocks >= 3, Error::<T>::RentalPeriodTooShort);
-			ensure!(blocks <= 90, Error::<T>::RentalPeriodTooLong);
-
 			let collectible =
 				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+
+			if let Some(minimum_rental_period) = collectible.minimum_rental_period {
+				ensure!(blocks >= minimum_rental_period, Error::<T>::RentalPeriodTooShort);
+			}
+
+			if let Some(maximum_rental_period) = collectible.maximum_rental_period {
+				ensure!(blocks <= maximum_rental_period, Error::<T>::RentalPeriodTooLong);
+			}
+
 			ensure!(collectible.lessor != lessee, Error::<T>::CannotRentOwnCollectible);
 			ensure!(collectible.lessee.is_none(), Error::<T>::RentNotAvailable);
 			ensure!(collectible.lessee != Some(lessee.clone()), Error::<T>::AlreadyRented);
-			ensure!(collectible.rentable, Error::<T>::RentNotAvailable);
 
 			Self::do_rent_collectible(unique_id, lessee, blocks, recurring)?;
 			Ok(())
@@ -264,7 +275,7 @@ pub mod pallet {
 
 			let account = match collectible.lessee {
 				Some(lessee) => {
-					ensure!(lessee == sender, Error::<T>::NotAllowdWhileRented);
+					ensure!(lessee == sender, Error::<T>::NotAllowedWhileRented);
 					lessee
 				},
 				None => {
@@ -317,6 +328,8 @@ pub mod pallet {
 				lessor: lessor.clone(),
 				lessee: None,
 				rentable: false,
+				minimum_rental_period: None,
+				maximum_rental_period: None,
 			};
 
 			ensure!(
