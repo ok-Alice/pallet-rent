@@ -63,9 +63,9 @@ pub mod pallet {
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
 	pub struct RentalPeriodConfig<T: Config> {
-		rental_periodic_interval: u32,
-		next_rent_block: T::BlockNumber,
-		recurring: bool,
+		pub rental_periodic_interval: u32,
+		pub next_rent_block: T::BlockNumber,
+		pub recurring: bool,
 	}
 
 	/// Maps the account id to the collectibles rented and the rental configuration.
@@ -114,7 +114,7 @@ pub mod pallet {
 			total_rent_price: BalanceOf<T>,
 		},
 		/// A rental period was successfully added.
-		RentalPeriodAdded { collectible: [u8; 16], next_rent_block: T::BlockNumber },
+		RentalPeriodAdded { collectible_id: [u8; 16], next_rent_block: T::BlockNumber },
 		/// A rental period was successfully ended.
 		RentalPeriodEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
 		/// Collectible rent made unavailable.
@@ -309,13 +309,13 @@ pub mod pallet {
 						Some(next_rent_block + blocks),
 						lessee_rental.rental_periodic_interval,
 						collectible.unique_id,
-						lessee.clone(),
-					);
+						&lessee,
+					)?;
 
 					let rental_config = RentalPeriodConfig { next_rent_block, ..lessee_rental };
 
 					// overwrite rental configuration for the collectible
-					LesseeCollectiblesDoubleMap::<T>::insert(&lessee, &unique_id, &rental_config);
+					LesseeCollectiblesDoubleMap::<T>::insert(lessee, &unique_id, &rental_config);
 
 					PendingRentals::<T>::insert(&next_rent_block, pending_rental);
 				},
@@ -440,32 +440,22 @@ pub mod pallet {
 
 			collectible.lessee = Some(lessee.clone());
 
-			let mut block_number =
-				frame_system::Pallet::<T>::block_number() + rent_periodic_interval.into();
-
-			let mut rental_periods = PendingRentals::<T>::get(block_number);
-
-			// try to append the collectible to the rental period
-			// if it fails (because the rental period is already full), increment the rental period
-			// and try again
-			while let Err(_) =
-				rental_periods.try_append(&mut vec![(collectible.unique_id, lessee.clone())])
-			{
-				let next_block_number: T::BlockNumber = (1 as u32).into();
-				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
-				rental_periods = PendingRentals::<T>::get(block_number);
-			}
+			let next_rent_block = Self::_append_pending_rental_to_available_block(
+				None,
+				rent_periodic_interval,
+				unique_id,
+				&lessee,
+			)
+			.unwrap();
 
 			let rental_config = RentalPeriodConfig {
 				rental_periodic_interval: rent_periodic_interval.into(),
-				next_rent_block: block_number,
+				next_rent_block,
 				recurring,
 			};
 
 			// overwrite rental configuration for the collectible
 			LesseeCollectiblesDoubleMap::<T>::insert(&lessee, &unique_id, &rental_config);
-
-			Self::insert_rental_period(lessee, unique_id, rental_config).unwrap();
 
 			CollectibleMap::<T>::insert(&unique_id, &collectible);
 
@@ -490,29 +480,12 @@ pub mod pallet {
 			frame_support::Hashable::blake2_128(&encoded_payload)
 		}
 
-		fn insert_rental_period(
-			lessee: T::AccountId,
-			collectible: [u8; 16],
-			rental_config: RentalPeriodConfig<T>,
-		) -> DispatchResult {
-			let next_rent_block = Self::_append_pending_rental_to_available_block(
-				None,
-				rental_config.rental_periodic_interval,
-				collectible,
-				lessee,
-			);
-
-			Self::deposit_event(Event::RentalPeriodAdded { collectible, next_rent_block });
-
-			Ok(())
-		}
-
 		fn _append_pending_rental_to_available_block(
 			starting_block_number: Option<T::BlockNumber>,
 			rental_periodic_interval: u32,
 			collectible_id: [u8; 16],
-			lessee: T::AccountId,
-		) -> T::BlockNumber {
+			lessee: &T::AccountId,
+		) -> Result<T::BlockNumber, DispatchError> {
 			let starting_block_number = match starting_block_number {
 				Some(block_number) => block_number,
 				None => frame_system::Pallet::<T>::block_number(),
@@ -535,7 +508,12 @@ pub mod pallet {
 
 			PendingRentals::<T>::insert(block_number, rental_periods);
 
-			block_number
+			Self::deposit_event(Event::RentalPeriodAdded {
+				collectible_id,
+				next_rent_block: block_number,
+			});
+
+			Ok(block_number)
 		}
 
 		fn process_rental_periods(n: T::BlockNumber) {
@@ -595,7 +573,13 @@ pub mod pallet {
 
 				// Add the rental period again if recurring
 				if rental_config.recurring {
-					Self::insert_rental_period(lessee, collectible_id, rental_config).unwrap();
+					Self::_append_pending_rental_to_available_block(
+						None,
+						rental_config.rental_periodic_interval,
+						collectible_id,
+						&lessee,
+					)
+					.unwrap();
 				}
 			}
 
