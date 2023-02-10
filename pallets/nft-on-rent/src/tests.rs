@@ -1,8 +1,8 @@
 use frame_support::assert_noop;
 
 use crate::{
-	mock::{ExtBuilder, NftOnRent, RuntimeEvent, RuntimeOrigin, System, Test},
-	CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap,
+	mock::{run_to_block, ExtBuilder, NftOnRent, RuntimeEvent, RuntimeOrigin, System, Test},
+	CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap, PendingRentals,
 };
 
 const COLLECTIBLE_ID: [u8; 16] = [1; 16];
@@ -159,5 +159,51 @@ fn test_rent_non_recurring() {
 			),
 			None => panic!("No collectible"),
 		};
+	});
+}
+
+#[test]
+fn test_pending_rental_process() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		CollectibleMap::<Test>::insert(
+			COLLECTIBLE_ID,
+			crate::Collectible {
+				unique_id: COLLECTIBLE_ID,
+				lessor: 1,
+				lessee: Some(2),
+				rentable: true,
+				price_per_block: Some(price_per_block),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			},
+		);
+
+		LesseeCollectiblesDoubleMap::<Test>::insert(
+			2,
+			COLLECTIBLE_ID,
+			crate::RentalPeriodConfig {
+				rental_periodic_interval: 10,
+				next_rent_block: 11,
+				recurring: false,
+			},
+		);
+		let lessee_collectibles =
+			LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID).unwrap();
+
+		println!("lessee_collectibles: {:?}", lessee_collectibles);
+
+		let mut pending_rental = PendingRentals::<Test>::get(11);
+		pending_rental.try_append(&mut vec![(COLLECTIBLE_ID, 2)]).unwrap();
+		PendingRentals::<Test>::insert(11, pending_rental);
+
+		run_to_block(11);
+
+		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodEnded {
+			collectible: COLLECTIBLE_ID,
+			lessee: 2,
+			lessor: 1,
+		}));
 	});
 }

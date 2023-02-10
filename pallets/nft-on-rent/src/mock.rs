@@ -9,7 +9,7 @@ use frame_support::{
 		MultiSignature,
 	},
 	sp_tracing,
-	traits::{ConstU32, ConstU64, ConstU8},
+	traits::{ConstU32, ConstU64, ConstU8, Hooks},
 	weights::IdentityFee,
 };
 use pallet_balances::AccountData;
@@ -66,6 +66,7 @@ construct_runtime!(
 		System: frame_system::{Pallet, Call, Storage, Config, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>},
+		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
 		NftOnRent: nft_on_rent::{Pallet, Call, Storage, Event<T>},
 		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage},
 	}
@@ -131,6 +132,12 @@ impl pallet_transaction_payment::Config for Test {
 
 impl pallet_randomness_collective_flip::Config for Test {}
 
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = ();
+	type MinimumPeriod = ConstU64<5>;
+	type WeightInfo = ();
+}
 #[derive(Default)]
 pub struct ExtBuilder;
 
@@ -152,5 +159,25 @@ impl ExtBuilder {
 		sp_tracing::try_init_simple();
 		let mut ext = self.build();
 		ext.execute_with(test);
+	}
+}
+
+pub const INIT_TIMESTAMP: u64 = 30_000;
+pub const BLOCK_TIME: u64 = 1000;
+
+/// Progress to the given block, triggering session and era changes as we progress.
+///
+/// This will finalize the previous block, initialize up to the given block, essentially simulating
+/// a block import/propose process where we first initialize the block, then execute some stuff (not
+/// in the function), and then finalize the block.
+pub(crate) fn run_to_block(n: BlockNumber) {
+	<NftOnRent as Hooks<u64>>::on_finalize(System::block_number());
+	for b in (System::block_number() + 1)..=n.into() {
+		System::set_block_number(b);
+		NftOnRent::on_initialize(b);
+		Timestamp::set_timestamp(System::block_number() * BLOCK_TIME + INIT_TIMESTAMP);
+		if b != n as u64 {
+			<NftOnRent as Hooks<u64>>::on_finalize(System::block_number());
+		}
 	}
 }
