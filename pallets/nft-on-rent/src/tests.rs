@@ -30,3 +30,38 @@ fn test_mint() {
 		};
 	});
 }
+
+#[test]
+fn test_set_rentable() {
+	ExtBuilder::default().build_and_execute(|| {
+		let unique_id: [u8; 16] = [1; 16];
+
+		CollectibleMap::<Test>::insert(
+			unique_id,
+			crate::Collectible {
+				unique_id,
+				lessor: 1,
+				lessee: None,
+				rentable: false,
+				price_per_block: None,
+				minimum_rental_period: None,
+				maximum_rental_period: None,
+			},
+		);
+
+		NftOnRent::set_rentable(RuntimeOrigin::signed(1), unique_id, 100, 10, 30).unwrap();
+
+		assert_eq!(
+			CollectibleMap::<Test>::get(unique_id).unwrap(),
+			crate::Collectible {
+				unique_id,
+				lessor: 1,
+				lessee: None,
+				rentable: true,
+				price_per_block: Some(100),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			}
+		);
+	});
+}
