@@ -1,3 +1,25 @@
+//! # Rent Pallet
+//!
+//! The Rent pallet provides functionality for renting collectibles.
+//!
+//! - [`Config`]
+//! - [`Call`]
+//! - [`Pallet`]
+//!
+//! ## Overview
+//!
+//! The Rent pallet enables accounts to rent collectibles.
+//!
+//! ### Terminology
+//!
+//! - Lessor: The account that owns a collectible and can rent it.
+//! - Lessee: The account that rents a collectible.
+//!
+//! ## GenesisConfig
+//!
+//! The Rent pallet depends on the [`GenesisConfig`]. The
+//! `GenesisConfig` is optional and allow to set some initial stakers.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(test)]
@@ -10,13 +32,12 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::{OriginFor, *};
-
 	use frame_support::{
 		ensure,
+		pallet_prelude::*,
 		traits::{Currency, Get, Randomness},
 	};
+	use frame_system::pallet_prelude::{OriginFor, *};
 
 	use scale_info::prelude::vec;
 

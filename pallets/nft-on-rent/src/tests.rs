@@ -205,5 +205,20 @@ fn test_pending_rental_process() {
 			lessee: 2,
 			lessor: 1,
 		}));
+
+		assert_eq!(
+			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			crate::Collectible {
+				unique_id: COLLECTIBLE_ID,
+				lessor: 1,
+				lessee: None,
+				rentable: true,
+				price_per_block: Some(100),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			}
+		);
+
+		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
 	});
 }
