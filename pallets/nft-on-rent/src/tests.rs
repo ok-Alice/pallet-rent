@@ -222,3 +222,30 @@ fn test_pending_rental_process() {
 		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
 	});
 }
+
+#[test]
+fn test_equip_collectible() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		CollectibleMap::<Test>::insert(
+			COLLECTIBLE_ID,
+			crate::Collectible {
+				unique_id: COLLECTIBLE_ID,
+				lessor: 1,
+				lessee: Some(2),
+				rentable: true,
+				price_per_block: Some(price_per_block),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			},
+		);
+
+		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+
+		System::assert_has_event(RuntimeEvent::NftOnRent(Event::CollectibleEquipped {
+			collectible: COLLECTIBLE_ID,
+			account: 2,
+		}));
+	});
+}
