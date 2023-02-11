@@ -138,6 +138,7 @@ impl pallet_timestamp::Config for Test {
 	type MinimumPeriod = ConstU64<5>;
 	type WeightInfo = ();
 }
+
 #[derive(Default)]
 pub struct ExtBuilder;
 

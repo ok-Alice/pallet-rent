@@ -347,7 +347,7 @@ fn test_pending_rental_process_recurring() {
 }
 
 #[test]
-fn test_pending_rental_process_update_recurring() {
+fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
@@ -413,6 +413,73 @@ fn test_pending_rental_process_update_recurring() {
 				maximum_rental_period: Some(30),
 			}
 		);
+	});
+}
+
+#[test]
+fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		// Insert collectible with present lessee
+		CollectibleMap::<Test>::insert(
+			COLLECTIBLE_ID,
+			crate::Collectible {
+				unique_id: COLLECTIBLE_ID,
+				lessor: 1,
+				lessee: Some(2),
+				rentable: true,
+				price_per_block: Some(price_per_block),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			},
+		);
+
+		// Insert lessee collectible with reccuring rental
+		LesseeCollectiblesDoubleMap::<Test>::insert(
+			2,
+			COLLECTIBLE_ID,
+			crate::RentalPeriodConfig {
+				rental_periodic_interval: 10,
+				next_rent_block: 11,
+				recurring: true,
+			},
+		);
+
+		// Insert pending rental to process in block 11
+		let mut pending_rental = PendingRentals::<Test>::get(11);
+		pending_rental.try_append(&mut vec![(COLLECTIBLE_ID, 2)]).unwrap();
+		PendingRentals::<Test>::insert(11, pending_rental);
+
+		run_to_block(5);
+
+		// before reaching block 11, set un-recurring rental
+		assert_ok!(NftOnRent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, false));
+
+		run_to_block(11);
+
+		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodEnded {
+			lessor: 1,
+			lessee: 2,
+			collectible: COLLECTIBLE_ID,
+		}));
+
+		// Check collectible is no longer rented by lessee
+		assert_eq!(
+			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			crate::Collectible {
+				unique_id: COLLECTIBLE_ID,
+				lessor: 1,
+				lessee: None,
+				rentable: true,
+				price_per_block: Some(100),
+				minimum_rental_period: Some(10),
+				maximum_rental_period: Some(30),
+			}
+		);
+
+		// Check collectible is no longer rented by lessee
+		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
 	});
 }
 
