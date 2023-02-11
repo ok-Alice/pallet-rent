@@ -1,0 +1,53 @@
+# Rent Module
+
+A simple and secure module for making non-fungible assets rentable.
+
+## Overview
+
+The Rent module module provides functionality for non-fungible asset rental management, including:
+
+- Asset Minting
+- Asset Renting
+- Asset Partial Ownership
+- Asset Destruction
+
+To use it in your runtime, you need to implement the assets pallet_rent::Config.
+
+The supported dispatchable functions are documented in the pallet_rent::Call enum.
+
+### Terminology
+
+- Non-fungible asset: An asset that is unique and can be identified by a unique identifier.
+- Asset Minting: The process of creating a new non-fungible asset.
+- Asset Renting: The process of renting a non-fungible asset.
+- Asset Partial Ownership: The process of enabling partial ownership of a non-fungible asset ot a lessee.
+- Asset Destruction: The process of destroying a non-fungible asset.
+- Lessor: The account that owns a non-fungible asset and allows it to be rented.
+- Lessee: The account that rents a non-fungible asset.
+
+### Goals
+
+The Pallet-Rent pallet in Substrate is designed to make the following possible:
+
+- Allow an account to mint a non-fungible asset.
+- Allow an account to rent out a non-fungible asset.
+- Automatically process rent payments from the lessee to the lessor.
+- Allow an account to define the rent payment method for a non-fungible asset.
+- Allow an account to rent a non-fungible asset for a specified period of time (in blocks) with optional auto-renewal.
+- Allow an account to destroy a non-fungible asset.
+
+## Interface
+
+### Dispatchables
+
+- `mint` - Mint a new non-fungible asset.
+- `set_rentable` - As a lessor, Set a non-fungible asset available for rent.
+- `set_unrentable` - As a lessor, Set a non-fungible asset unavailable for rent.
+- `rent` - As a lessee, Rent a non-fungible asset.
+- `set_recurring` - As a lessee, set a non-fungible asset to be rented on a recurring basis.
+- `extend_rent` - As a lessee, extend the rental period of a non-fungible asset.
+
+**Testing dispatchables**
+
+- `equip` - Equip a non-fungible asset. (This is to demonstrate partial ownership)
+- `unequip` - Unequip a non-fungible asset. (This is to demonstrate partial ownership)
