@@ -42,9 +42,9 @@ The Pallet-Rent pallet in Substrate is designed to make the following possible:
 
 - `mint` - Mint a new non-fungible asset.
 - `burn` - Destroy a non-fungible asset (only when there is no lessee - use `set_unrentable` and then `burn`).
-- `set_rentable` - As a lessor, Set a non-fungible asset available for rent.
-- `set_unrentable` - As a lessor, Set a non-fungible asset unavailable for rent.
-- `rent` - As a lessee, Rent a non-fungible asset.
+- `set_rentable` - As a lessor, set a non-fungible asset available for rent.
+- `set_unrentable` - As a lessor, set a non-fungible asset unavailable for rent.
+- `rent` - As a lessee, rent a non-fungible asset.
 - `set_recurring` - As a lessee, set a non-fungible asset to be rented on a recurring basis.
 - `extend_rent` - As a lessee, extend the rental period of a non-fungible asset.
 
