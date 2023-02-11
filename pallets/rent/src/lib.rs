@@ -2,24 +2,10 @@
 //!
 //! The Rent pallet provides functionality for renting collectibles.
 //!
-//! - [`Config`]
-//! - [`Call`]
-//! - [`Pallet`]
-//!
-//! ## Overview
-//!
-//! The Rent pallet enables accounts to rent collectibles.
-//!
 //! ### Terminology
 //!
 //! - Lessor: The account that owns a collectible and can rent it.
 //! - Lessee: The account that rents a collectible.
-//!
-//! ## GenesisConfig
-//!
-//! The Rent pallet depends on the [`GenesisConfig`]. The
-//! `GenesisConfig` is optional and allow to set some initial stakers.
-
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(test)]
@@ -27,6 +13,8 @@ mod mock;
 
 #[cfg(test)]
 mod tests;
+
+mod utils;
 
 pub use pallet::*;
 
@@ -40,6 +28,8 @@ pub mod pallet {
 	use frame_system::pallet_prelude::{OriginFor, *};
 
 	use scale_info::prelude::vec;
+
+	use crate::utils::convert_to_primitive;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -78,13 +68,12 @@ pub mod pallet {
 
 	/// Maps the account id to the owned collectibles.
 	#[pallet::storage]
-	pub(super) type LessorCollectiblesMap<T: Config> =
+	pub(super) type LessorCollectibles<T: Config> =
 		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
 
 	/// Maps the Collectible struct to the unique_id.
 	#[pallet::storage]
-	pub(super) type CollectibleMap<T: Config> =
-		StorageMap<_, Twox64Concat, [u8; 16], Collectible<T>>;
+	pub(super) type Collectibles<T: Config> = StorageMap<_, Twox64Concat, [u8; 16], Collectible<T>>;
 
 	/// List of rentable collectibles.
 	#[pallet::storage]
@@ -101,7 +90,7 @@ pub mod pallet {
 
 	/// Maps the account id to the collectibles rented and the rental configuration.
 	#[pallet::storage]
-	pub(super) type LesseeCollectiblesDoubleMap<T: Config> = StorageDoubleMap<
+	pub(super) type LesseeCollectibles<T: Config> = StorageDoubleMap<
 		_,
 		Twox64Concat,
 		T::AccountId,
@@ -121,7 +110,7 @@ pub mod pallet {
 	>;
 
 	#[pallet::storage]
-	pub(super) type AccountEquipsMap<T: Config> =
+	pub(super) type AccountEquips<T: Config> =
 		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
 
 	#[pallet::event]
@@ -145,19 +134,28 @@ pub mod pallet {
 			total_rent_price: BalanceOf<T>,
 		},
 		/// A rental period was successfully added.
-		RentalPeriodAdded { collectible_id: [u8; 16], next_rent_block: T::BlockNumber },
+		RentalPeriodAdded { collectible: [u8; 16], next_rent_block: T::BlockNumber },
+		/// A rental period was successfully added.
+		RentalPeriodRemoved { collectible: [u8; 16], at_block: T::BlockNumber },
 		/// A rental period was successfully ended.
-		RentalPeriodEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
+		RentalEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
 		/// Collectible rent made unavailable.
 		RentMadeUnavailable { collectible: [u8; 16] },
 		/// Collectible rent made recurring.
-		RentalMadeRecurring { collectible: [u8; 16] },
+		RentalSetRecurring { collectible: [u8; 16], recurring: bool },
 		/// Cancelled recurring rental since payment was not made.
 		ErrorTransferingRent { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
 		/// Collectible equipped by account.
 		CollectibleEquipped { account: T::AccountId, collectible: [u8; 16] },
 		/// Collectible unequipped by account.
 		CollectibleUnequipped { account: T::AccountId, collectible: [u8; 16] },
+		/// Rental extended.
+		RentalExtended {
+			lessor: T::AccountId,
+			lessee: T::AccountId,
+			collectible: [u8; 16],
+			next_rent_block: T::BlockNumber,
+		},
 	}
 
 	#[pallet::error]
@@ -186,6 +184,8 @@ pub mod pallet {
 		TooManyCollectiblesEquiped,
 		/// Account reached max owned collectibles.
 		TooManyCollectiblesOwned,
+		/// Not enough balance to rent collectible.
+		NotEnoughBalance,
 	}
 
 	// Pallet callable functions
@@ -212,17 +212,16 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
 			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
 			ensure!(collectible.lessee == None, Error::<T>::NotAllowedWhileRented);
 
-			CollectibleMap::<T>::remove(&unique_id);
+			Collectibles::<T>::remove(&unique_id);
 
-			let mut lessor_collectibles =
-				LessorCollectiblesMap::<T>::get(&sender).unwrap_or_default();
+			let mut lessor_collectibles = LessorCollectibles::<T>::get(&sender).unwrap_or_default();
 			lessor_collectibles.retain(|&x| x != unique_id);
-			LessorCollectiblesMap::<T>::insert(&sender, lessor_collectibles);
+			LessorCollectibles::<T>::insert(&sender, lessor_collectibles);
 
 			Ok(())
 		}
@@ -240,7 +239,7 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let mut collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
 
 			collectible.price_per_block = Some(price_per_block);
@@ -248,7 +247,7 @@ pub mod pallet {
 			collectible.minimum_rental_period = Some(minimum_rental_period);
 			collectible.maximum_rental_period = Some(maximum_rental_period);
 
-			CollectibleMap::<T>::insert(&unique_id, collectible);
+			Collectibles::<T>::insert(&unique_id, collectible);
 
 			let mut rentable_collectibles = RentableCollectibles::<T>::get();
 
@@ -276,7 +275,7 @@ pub mod pallet {
 			let lessee = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
 			if let Some(minimum_rental_period) = collectible.minimum_rental_period {
 				ensure!(blocks >= minimum_rental_period, Error::<T>::RentalPeriodTooShort);
@@ -300,12 +299,12 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let mut collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
 
 			collectible.rentable = false;
 
-			CollectibleMap::<T>::insert(&unique_id, collectible);
+			Collectibles::<T>::insert(&unique_id, collectible);
 
 			let mut rentable_collectibles = RentableCollectibles::<T>::get();
 			rentable_collectibles.retain(|&x| x != unique_id);
@@ -325,10 +324,10 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.lessee == Some(sender.clone()), Error::<T>::NotLessor);
 
-			let lessee_rental = LesseeCollectiblesDoubleMap::<T>::get(&sender, &unique_id);
+			let lessee_rental = LesseeCollectibles::<T>::get(&sender, &unique_id);
 
 			ensure!(lessee_rental.is_some(), Error::<T>::NoCollectible);
 
@@ -336,11 +335,11 @@ pub mod pallet {
 
 			lessee_rental.recurring = recurring;
 
-			LesseeCollectiblesDoubleMap::<T>::insert(sender, &unique_id, lessee_rental);
+			LesseeCollectibles::<T>::insert(sender, &unique_id, lessee_rental);
 
-			CollectibleMap::<T>::insert(&unique_id, collectible);
+			Collectibles::<T>::insert(&unique_id, collectible);
 
-			Self::deposit_event(Event::RentalMadeRecurring { collectible: unique_id });
+			Self::deposit_event(Event::RentalSetRecurring { collectible: unique_id, recurring });
 
 			Ok(())
 		}
@@ -355,39 +354,10 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.lessee == Some(sender.clone()), Error::<T>::NotLessor);
 
-			let lessee = collectible.lessee.unwrap();
-
-			let lessee_rental = LesseeCollectiblesDoubleMap::<T>::get(&sender, &unique_id);
-
-			match lessee_rental {
-				Some(lessee_rental) => {
-					let next_rent_block = lessee_rental.next_rent_block;
-
-					let mut pending_rental = PendingRentals::<T>::get(&next_rent_block);
-
-					pending_rental.retain(|(id, _)| *id != unique_id);
-
-					PendingRentals::<T>::insert(&next_rent_block, &pending_rental);
-
-					let next_rent_block = Self::_append_pending_rental_to_available_block(
-						Some(next_rent_block + blocks),
-						lessee_rental.rental_periodic_interval,
-						collectible.unique_id,
-						&lessee,
-					)?;
-
-					let rental_config = RentalPeriodConfig { next_rent_block, ..lessee_rental };
-
-					// overwrite rental configuration for the collectible
-					LesseeCollectiblesDoubleMap::<T>::insert(lessee, &unique_id, &rental_config);
-
-					PendingRentals::<T>::insert(&next_rent_block, pending_rental);
-				},
-				None => return Err(Error::<T>::NoCollectible.into()),
-			}
+			Self::do_extend_rent(collectible, blocks)?;
 
 			Ok(())
 		}
@@ -398,7 +368,7 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
 			let account = match collectible.lessee {
 				Some(lessee) => {
@@ -411,10 +381,10 @@ pub mod pallet {
 				},
 			};
 
-			let mut vec = AccountEquipsMap::<T>::get(&account).unwrap_or_default();
+			let mut vec = AccountEquips::<T>::get(&account).unwrap_or_default();
 			vec.try_push(unique_id.clone())
 				.map_err(|_| Error::<T>::TooManyCollectiblesEquiped)?;
-			AccountEquipsMap::<T>::insert(&account, vec);
+			AccountEquips::<T>::insert(&account, vec);
 
 			Self::deposit_event(Event::CollectibleEquipped {
 				account: sender,
@@ -430,7 +400,7 @@ pub mod pallet {
 			let sender = ensure_signed(origin)?;
 
 			let collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
 			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
 
@@ -461,18 +431,17 @@ pub mod pallet {
 			};
 
 			ensure!(
-				!CollectibleMap::<T>::contains_key(&collectible.unique_id),
+				!Collectibles::<T>::contains_key(&collectible.unique_id),
 				Error::<T>::DuplicateCollectible
 			);
 
-			CollectibleMap::<T>::insert(collectible.unique_id, &collectible);
+			Collectibles::<T>::insert(collectible.unique_id, &collectible);
 
-			let mut lessor_collectibles =
-				LessorCollectiblesMap::<T>::get(&lessor).unwrap_or_default();
+			let mut lessor_collectibles = LessorCollectibles::<T>::get(&lessor).unwrap_or_default();
 			lessor_collectibles
 				.try_push(collectible.unique_id)
 				.map_err(|_| Error::<T>::TooManyCollectiblesOwned)?;
-			LessorCollectiblesMap::<T>::insert(&lessor, lessor_collectibles);
+			LessorCollectibles::<T>::insert(&lessor, lessor_collectibles);
 
 			Self::deposit_event(Event::CollectibleCreated {
 				collectible: unique_id,
@@ -490,13 +459,19 @@ pub mod pallet {
 			recurring: bool,
 		) -> DispatchResult {
 			let mut collectible =
-				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
 			let lessor = &collectible.lessor;
 			let lessee = lessee.clone();
 
 			let total_rent_price =
 				collectible.price_per_block.unwrap() * rent_periodic_interval.into();
+
+			// check if lessee has enough balance to pay for the rental
+			ensure!(
+				T::Currency::free_balance(&lessee) >= total_rent_price.into(),
+				Error::<T>::NotEnoughBalance
+			);
 
 			// Mutating state with a balance transfer, so nothing is allowed to fail after this.
 			T::Currency::transfer(
@@ -530,85 +505,109 @@ pub mod pallet {
 			};
 
 			// overwrite rental configuration for the collectible
-			LesseeCollectiblesDoubleMap::<T>::insert(&lessee, &unique_id, &rental_config);
+			LesseeCollectibles::<T>::insert(&lessee, &unique_id, &rental_config);
 
-			CollectibleMap::<T>::insert(&unique_id, &collectible);
+			Collectibles::<T>::insert(&unique_id, &collectible);
 
 			Self::_unequip_collectible_from_account(collectible.lessor.clone(), unique_id);
 
 			Ok(())
 		}
 
-		// Generates and returns the unique_id
-		fn _gen_unique_id() -> [u8; 16] {
-			let random = T::CollectionRandomness::random(&b"unique_id"[..]).0;
+		fn do_extend_rent(collectible: Collectible<T>, blocks: T::BlockNumber) -> DispatchResult {
+			let lessee = collectible.lessee.as_ref().unwrap();
 
-			// Create randomness payload. Multiple collectibles can be generated in the same block,
-			// retaining uniqueness.
-			let unique_payload = (
-				random,
-				frame_system::Pallet::<T>::extrinsic_index().unwrap_or_default(),
-				frame_system::Pallet::<T>::block_number(),
+			let lessee_rental = LesseeCollectibles::<T>::get(&lessee, &collectible.unique_id)
+				.ok_or(Error::<T>::NoCollectible)?;
+
+			ensure!(
+				blocks + lessee_rental.next_rent_block <=
+					collectible.maximum_rental_period.unwrap().into(),
+				Error::<T>::RentalPeriodTooLong
 			);
 
-			let encoded_payload = unique_payload.encode();
-			frame_support::Hashable::blake2_128(&encoded_payload)
-		}
+			// add blocks and rental period interval
+			let total_rent_price = convert_to_primitive::<T::BlockNumber, u32>(blocks).unwrap() *
+				convert_to_primitive::<BalanceOf<T>, u32>(collectible.price_per_block.unwrap())
+					.unwrap();
 
-		fn _append_pending_rental_to_available_block(
-			starting_block_number: Option<T::BlockNumber>,
-			rental_periodic_interval: u32,
-			collectible_id: [u8; 16],
-			lessee: &T::AccountId,
-		) -> Result<T::BlockNumber, DispatchError> {
-			let starting_block_number = match starting_block_number {
-				Some(block_number) => block_number,
-				None => frame_system::Pallet::<T>::block_number(),
-			};
+			// check if lessee has enough balance to pay for the rental
+			ensure!(
+				T::Currency::free_balance(&lessee) >= total_rent_price.into(),
+				Error::<T>::NotEnoughBalance
+			);
 
-			let mut block_number = starting_block_number + rental_periodic_interval.into();
+			// transfer rent price to lessor
+			T::Currency::transfer(
+				&lessee,
+				&collectible.lessor,
+				total_rent_price.into(),
+				frame_support::traits::ExistenceRequirement::KeepAlive,
+			)?;
 
-			let mut rental_periods = PendingRentals::<T>::get(block_number);
-
-			// try to append the collectible to the rental period
-			// if it fails (because the rental period is already full), increment the rental period
-			// and try again
-			while let Err(_) =
-				rental_periods.try_append(&mut vec![(collectible_id, lessee.clone())])
-			{
-				let next_block_number: T::BlockNumber = (1 as u32).into();
-				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
-				rental_periods = PendingRentals::<T>::get(block_number);
-			}
-
-			PendingRentals::<T>::insert(block_number, rental_periods);
-
-			Self::deposit_event(Event::RentalPeriodAdded {
-				collectible_id,
-				next_rent_block: block_number,
+			Self::deposit_event(Event::RentPayed {
+				lessee: lessee.clone(),
+				lessor: collectible.lessor.clone(),
+				collectible: collectible.unique_id,
+				total_rent_price: total_rent_price.into(),
 			});
 
-			Ok(block_number)
+			let next_rent_block = lessee_rental.next_rent_block;
+
+			// Remove old rental from pending rentals since we are extending it
+			let mut pending_rental = PendingRentals::<T>::get(&next_rent_block);
+			pending_rental.retain(|(id, _)| *id != collectible.unique_id);
+			PendingRentals::<T>::insert(&next_rent_block, &pending_rental);
+
+			Self::deposit_event(Event::RentalPeriodRemoved {
+				collectible: collectible.unique_id,
+				at_block: next_rent_block,
+			});
+
+			// Add new rental to pending rentals to extend the rent
+			let next_rent_block = Self::_append_pending_rental_to_available_block(
+				Some(next_rent_block),
+				convert_to_primitive::<T::BlockNumber, u32>(blocks).unwrap(),
+				collectible.unique_id,
+				&lessee,
+			)?;
+
+			// overwrite rental configuration for the collectible
+			let rental_config = RentalPeriodConfig { next_rent_block, ..lessee_rental };
+			LesseeCollectibles::<T>::insert(lessee, &collectible.unique_id, &rental_config);
+
+			Self::deposit_event(Event::RentalExtended {
+				lessor: collectible.lessor,
+				lessee: lessee.clone(),
+				collectible: collectible.unique_id,
+				next_rent_block,
+			});
+
+			Self::deposit_event(Event::RentalPeriodAdded {
+				collectible: collectible.unique_id,
+				next_rent_block,
+			});
+
+			Ok(())
 		}
 
-		fn process_rental_periods(n: T::BlockNumber) {
+		fn do_process_rental_periods(n: T::BlockNumber) {
 			let rentals = PendingRentals::<T>::get(n);
 
 			for rental in rentals {
 				let collectible_id = rental.0.clone();
 				let lessee = rental.1.clone();
 
-				let rental_config =
-					LesseeCollectiblesDoubleMap::<T>::get(&lessee, &collectible_id).unwrap();
+				let rental_config = LesseeCollectibles::<T>::get(&lessee, &collectible_id).unwrap();
 
-				let mut collectible = CollectibleMap::<T>::get(&collectible_id)
+				let mut collectible = Collectibles::<T>::get(&collectible_id)
 					.ok_or(Error::<T>::NoCollectible)
 					.unwrap();
 
 				if !collectible.rentable || None == collectible.lessee || !rental_config.recurring {
 					Self::_remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
 
-					Self::deposit_event(Event::RentalPeriodEnded {
+					Self::deposit_event(Event::RentalEnded {
 						lessee: lessee.clone(),
 						lessor: collectible.lessor.clone(),
 						collectible: collectible_id,
@@ -656,7 +655,7 @@ pub mod pallet {
 					)
 					.unwrap();
 
-					LesseeCollectiblesDoubleMap::<T>::insert(
+					LesseeCollectibles::<T>::insert(
 						&lessee,
 						&collectible_id,
 						RentalPeriodConfig { next_rent_block, ..rental_config },
@@ -667,15 +666,67 @@ pub mod pallet {
 			PendingRentals::<T>::remove(n);
 		}
 
+		// Generates and returns the unique_id
+		fn _gen_unique_id() -> [u8; 16] {
+			let random = T::CollectionRandomness::random(&b"unique_id"[..]).0;
+
+			// Create randomness payload. Multiple collectibles can be generated in the same block,
+			// retaining uniqueness.
+			let unique_payload = (
+				random,
+				frame_system::Pallet::<T>::extrinsic_index().unwrap_or_default(),
+				frame_system::Pallet::<T>::block_number(),
+			);
+
+			let encoded_payload = unique_payload.encode();
+			frame_support::Hashable::blake2_128(&encoded_payload)
+		}
+
+		fn _append_pending_rental_to_available_block(
+			starting_block_number: Option<T::BlockNumber>,
+			additional_rental_blocks: u32,
+			collectible_id: [u8; 16],
+			lessee: &T::AccountId,
+		) -> Result<T::BlockNumber, DispatchError> {
+			let starting_block_number = match starting_block_number {
+				Some(block_number) => block_number,
+				None => frame_system::Pallet::<T>::block_number(),
+			};
+
+			let mut block_number = starting_block_number + additional_rental_blocks.into();
+
+			let mut rental_periods = PendingRentals::<T>::get(block_number);
+
+			// try to append the collectible to the rental period
+			// if it fails (because the rental period is already full), increment the rental period
+			// and try again
+			while let Err(_) =
+				rental_periods.try_append(&mut vec![(collectible_id, lessee.clone())])
+			{
+				let next_block_number: T::BlockNumber = (1 as u32).into();
+				block_number = frame_system::Pallet::<T>::block_number() + next_block_number;
+				rental_periods = PendingRentals::<T>::get(block_number);
+			}
+
+			PendingRentals::<T>::insert(block_number, rental_periods);
+
+			Self::deposit_event(Event::RentalPeriodAdded {
+				collectible: collectible_id,
+				next_rent_block: block_number,
+			});
+
+			Ok(block_number)
+		}
+
 		fn _remove_lessee_from_collectible(
 			lessee: &T::AccountId,
 			collectible: &mut Collectible<T>,
 		) -> DispatchResult {
 			let collectible_id = collectible.unique_id;
-			LesseeCollectiblesDoubleMap::<T>::remove(&lessee, &collectible_id);
+			LesseeCollectibles::<T>::remove(&lessee, &collectible_id);
 
 			collectible.lessee = None;
-			CollectibleMap::<T>::insert(&collectible_id, collectible);
+			Collectibles::<T>::insert(&collectible_id, collectible);
 
 			Self::_unequip_collectible_from_account(lessee.clone(), collectible_id);
 
@@ -683,16 +734,16 @@ pub mod pallet {
 		}
 
 		fn _unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
-			let mut equiped = AccountEquipsMap::<T>::get(&account).unwrap_or_default();
+			let mut equiped = AccountEquips::<T>::get(&account).unwrap_or_default();
 			equiped.retain(|c| c != &collectible_id);
-			AccountEquipsMap::<T>::insert(&account, equiped);
+			AccountEquips::<T>::insert(&account, equiped);
 		}
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: T::BlockNumber) -> Weight {
-			Self::process_rental_periods(n);
+			Self::do_process_rental_periods(n);
 
 			// TODO: Calculate weight
 			Weight::from_parts(0, 0)

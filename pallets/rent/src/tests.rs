@@ -2,8 +2,8 @@ use frame_support::{assert_noop, assert_ok};
 
 use crate::{
 	mock::{self, run_to_block, ExtBuilder, Rent, RuntimeEvent, RuntimeOrigin, System, Test},
-	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap,
-	LessorCollectiblesMap, PendingRentals, RentableCollectibles,
+	AccountEquips, Collectibles, Error, Event, LesseeCollectibles, LessorCollectibles,
+	PendingRentals, RentableCollectibles,
 };
 
 const COLLECTIBLE_ID: [u8; 16] = [1; 16];
@@ -21,9 +21,9 @@ fn test_mint() {
 				lessor: _lessor,
 				current_lessee: _current_lessee,
 			}) => {
-				assert!(CollectibleMap::<Test>::contains_key(collectible));
+				assert!(Collectibles::<Test>::contains_key(collectible));
 
-				let collectible = CollectibleMap::<Test>::get(collectible).unwrap();
+				let collectible = Collectibles::<Test>::get(collectible).unwrap();
 
 				assert_eq!(collectible.lessor, 1);
 				assert_eq!(collectible.lessee, None);
@@ -31,7 +31,7 @@ fn test_mint() {
 				assert_eq!(collectible.minimum_rental_period, None);
 				assert_eq!(collectible.maximum_rental_period, None);
 
-				let lessor_collectibles = LessorCollectiblesMap::<Test>::get(1).unwrap();
+				let lessor_collectibles = LessorCollectibles::<Test>::get(1).unwrap();
 
 				assert_eq!(lessor_collectibles.len(), 1);
 				assert_eq!(lessor_collectibles[0], collectible.unique_id);
@@ -48,9 +48,9 @@ fn test_burn() {
 
 		Rent::burn(RuntimeOrigin::signed(1), COLLECTIBLE_ID).unwrap();
 
-		assert!(!CollectibleMap::<Test>::contains_key(COLLECTIBLE_ID));
+		assert!(!Collectibles::<Test>::contains_key(COLLECTIBLE_ID));
 
-		let lessor_collectibles = LessorCollectiblesMap::<Test>::get(1).unwrap();
+		let lessor_collectibles = LessorCollectibles::<Test>::get(1).unwrap();
 
 		assert_eq!(lessor_collectibles.len(), 0);
 	});
@@ -98,7 +98,7 @@ fn test_set_rentable() {
 		Rent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30).unwrap();
 
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -183,7 +183,7 @@ fn test_rent_non_recurring() {
 		}));
 
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -195,7 +195,7 @@ fn test_rent_non_recurring() {
 			}
 		);
 
-		match LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID) {
+		match LesseeCollectibles::<Test>::get(2, COLLECTIBLE_ID) {
 			Some(lessee_collectibles) => assert_eq!(
 				lessee_collectibles,
 				crate::RentalPeriodConfig {
@@ -224,7 +224,7 @@ fn test_pending_rental_process_ending() {
 			Some(30),
 		);
 
-		LesseeCollectiblesDoubleMap::<Test>::insert(
+		LesseeCollectibles::<Test>::insert(
 			2,
 			COLLECTIBLE_ID,
 			crate::RentalPeriodConfig {
@@ -240,14 +240,14 @@ fn test_pending_rental_process_ending() {
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodEnded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalEnded {
 			lessor: 1,
 			lessee: 2,
 			collectible: COLLECTIBLE_ID,
 		}));
 
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -259,10 +259,10 @@ fn test_pending_rental_process_ending() {
 			}
 		);
 
-		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
+		assert_eq!(LesseeCollectibles::<Test>::get(2, COLLECTIBLE_ID), None);
 
 		// Check collectible is no equipped by lessee
-		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![]);
+		assert_eq!(AccountEquips::<Test>::get(2).unwrap_or_default(), vec![]);
 	});
 }
 
@@ -283,7 +283,7 @@ fn test_pending_rental_process_recurring() {
 		);
 
 		// Insert lessee collectible with recurring rental
-		LesseeCollectiblesDoubleMap::<Test>::insert(
+		LesseeCollectibles::<Test>::insert(
 			2,
 			COLLECTIBLE_ID,
 			crate::RentalPeriodConfig {
@@ -301,7 +301,7 @@ fn test_pending_rental_process_recurring() {
 		run_to_block(11);
 
 		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodAdded {
-			collectible_id: COLLECTIBLE_ID,
+			collectible: COLLECTIBLE_ID,
 			next_rent_block: 21,
 		}));
 
@@ -314,7 +314,7 @@ fn test_pending_rental_process_recurring() {
 
 		// Check collectible is no longer rented by lessee
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -327,7 +327,7 @@ fn test_pending_rental_process_recurring() {
 		);
 
 		// Check lessee no longer has rented collectible
-		match LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID) {
+		match LesseeCollectibles::<Test>::get(2, COLLECTIBLE_ID) {
 			Some(lessee_collectibles) => assert_eq!(
 				lessee_collectibles,
 				crate::RentalPeriodConfig {
@@ -358,7 +358,7 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 		);
 
 		// Insert lessee collectible without reccuring rental
-		LesseeCollectiblesDoubleMap::<Test>::insert(
+		LesseeCollectibles::<Test>::insert(
 			2,
 			COLLECTIBLE_ID,
 			crate::RentalPeriodConfig {
@@ -381,7 +381,7 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 		run_to_block(11);
 
 		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodAdded {
-			collectible_id: COLLECTIBLE_ID,
+			collectible: COLLECTIBLE_ID,
 			next_rent_block: 21,
 		}));
 
@@ -394,7 +394,7 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 
 		// Check collectible is no longer rented by lessee
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -425,7 +425,7 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 		);
 
 		// Insert lessee collectible with reccuring rental
-		LesseeCollectiblesDoubleMap::<Test>::insert(
+		LesseeCollectibles::<Test>::insert(
 			2,
 			COLLECTIBLE_ID,
 			crate::RentalPeriodConfig {
@@ -450,7 +450,7 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodEnded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalEnded {
 			lessor: 1,
 			lessee: 2,
 			collectible: COLLECTIBLE_ID,
@@ -458,7 +458,7 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 
 		// Check collectible is no longer rented by lessee
 		assert_eq!(
-			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
+			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
 				unique_id: COLLECTIBLE_ID,
 				lessor: 1,
@@ -471,10 +471,113 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 		);
 
 		// Check collectible is no longer rented by lessee
-		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
+		assert_eq!(LesseeCollectibles::<Test>::get(2, COLLECTIBLE_ID), None);
 
 		// Check collectible is no equipped by lessee
-		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![]);
+		assert_eq!(AccountEquips::<Test>::get(2).unwrap_or_default(), vec![]);
+	});
+}
+
+#[test]
+fn test_extend_rent() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		// Insert collectible with present lessee
+		mock::add_collectible(
+			COLLECTIBLE_ID,
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
+		);
+
+		// Insert lessee collectible without reccuring rental
+		LesseeCollectibles::<Test>::insert(
+			2,
+			COLLECTIBLE_ID,
+			crate::RentalPeriodConfig {
+				rental_periodic_interval: 10,
+				next_rent_block: 11,
+				recurring: false,
+			},
+		);
+
+		// Insert pending rental to process in block 11
+		let mut pending_rental = PendingRentals::<Test>::get(11);
+		pending_rental.try_append(&mut vec![(COLLECTIBLE_ID, 2)]).unwrap();
+		PendingRentals::<Test>::insert(11, pending_rental);
+
+		run_to_block(5);
+
+		// before reaching block 11, extend rental
+		assert_ok!(Rent::extend_rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, 3));
+
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalExtended {
+			lessor: 1,
+			lessee: 2,
+			collectible: COLLECTIBLE_ID,
+			next_rent_block: 14,
+		}));
+
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodAdded {
+			collectible: COLLECTIBLE_ID,
+			next_rent_block: 14,
+		}));
+
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodRemoved {
+			collectible: COLLECTIBLE_ID,
+			at_block: 11,
+		}));
+
+		// check that rental period is not present in block 11
+		assert_eq!(PendingRentals::<Test>::get(11), vec![]);
+		// check that rental period is present in block 14
+		assert_eq!(PendingRentals::<Test>::get(14), vec![(COLLECTIBLE_ID, 2)]);
+	});
+}
+
+#[test]
+fn test_extend_rent_should_fail_if_exceeds_maximum_rental_period() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		// Insert collectible with present lessee
+		mock::add_collectible(
+			COLLECTIBLE_ID,
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
+		);
+
+		// Insert lessee collectible without reccuring rental
+		LesseeCollectibles::<Test>::insert(
+			2,
+			COLLECTIBLE_ID,
+			crate::RentalPeriodConfig {
+				rental_periodic_interval: 10,
+				next_rent_block: 11,
+				recurring: false,
+			},
+		);
+
+		// Insert pending rental to process in block 11
+		let mut pending_rental = PendingRentals::<Test>::get(11);
+		pending_rental.try_append(&mut vec![(COLLECTIBLE_ID, 2)]).unwrap();
+		PendingRentals::<Test>::insert(11, pending_rental);
+
+		run_to_block(5);
+
+		// before reaching block 11, extend rental
+		assert_noop!(
+			Rent::extend_rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, 20),
+			Error::<Test>::RentalPeriodTooLong
+		);
 	});
 }
 
@@ -500,7 +603,7 @@ fn test_equip_collectible() {
 			account: 2,
 		}));
 
-		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![COLLECTIBLE_ID]);
+		assert_eq!(AccountEquips::<Test>::get(2).unwrap_or_default(), vec![COLLECTIBLE_ID]);
 	});
 }
 
@@ -526,7 +629,7 @@ fn test_unequip_collectible() {
 			account: 2,
 		}));
 
-		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![COLLECTIBLE_ID]);
+		assert_eq!(AccountEquips::<Test>::get(2).unwrap_or_default(), vec![COLLECTIBLE_ID]);
 
 		Rent::unequip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
 
@@ -535,7 +638,7 @@ fn test_unequip_collectible() {
 			account: 2,
 		}));
 
-		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![]);
+		assert_eq!(AccountEquips::<Test>::get(2).unwrap_or_default(), vec![]);
 	});
 }
 

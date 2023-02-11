@@ -1,4 +1,4 @@
-use crate::{self as pallet_rent, CollectibleMap, LessorCollectiblesMap};
+use crate::{self as pallet_rent, Collectibles, LessorCollectibles};
 use frame_support::{
 	construct_runtime, parameter_types, sp_io,
 	sp_runtime::{
@@ -195,7 +195,7 @@ pub(crate) fn add_collectible(
 	minimum_rental_period: Option<BlockNumber>,
 	maximum_rental_period: Option<BlockNumber>,
 ) {
-	CollectibleMap::<Test>::insert(
+	Collectibles::<Test>::insert(
 		unique_id,
 		crate::Collectible {
 			unique_id,
@@ -208,7 +208,7 @@ pub(crate) fn add_collectible(
 		},
 	);
 
-	let mut lessor_collectibles = LessorCollectiblesMap::<Test>::get(&lessor).unwrap_or_default();
+	let mut lessor_collectibles = LessorCollectibles::<Test>::get(&lessor).unwrap_or_default();
 	lessor_collectibles.try_push(unique_id).unwrap();
-	LessorCollectiblesMap::<Test>::insert(&lessor, lessor_collectibles);
+	LessorCollectibles::<Test>::insert(&lessor, lessor_collectibles);
 }
