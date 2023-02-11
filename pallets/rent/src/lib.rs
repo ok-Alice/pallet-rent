@@ -86,6 +86,11 @@ pub mod pallet {
 	pub(super) type CollectibleMap<T: Config> =
 		StorageMap<_, Twox64Concat, [u8; 16], Collectible<T>>;
 
+	/// List of rentable collectibles.
+	#[pallet::storage]
+	pub(super) type RentableCollectibles<T: Config> =
+		StorageValue<_, BoundedVec<[u8; 16], T::MaximumOwned>, ValueQuery>;
+
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
 	pub struct RentalPeriodConfig<T: Config> {
@@ -245,6 +250,14 @@ pub mod pallet {
 
 			CollectibleMap::<T>::insert(&unique_id, collectible);
 
+			let mut rentable_collectibles = RentableCollectibles::<T>::get();
+
+			rentable_collectibles
+				.try_push(unique_id)
+				.map_err(|_| Error::<T>::TooManyCollectibles)?;
+
+			RentableCollectibles::<T>::put(rentable_collectibles);
+
 			Self::deposit_event(Event::RentMadeAvailable {
 				collectible: unique_id,
 				price_per_block,
@@ -293,6 +306,10 @@ pub mod pallet {
 			collectible.rentable = false;
 
 			CollectibleMap::<T>::insert(&unique_id, collectible);
+
+			let mut rentable_collectibles = RentableCollectibles::<T>::get();
+			rentable_collectibles.retain(|&x| x != unique_id);
+			RentableCollectibles::<T>::put(rentable_collectibles);
 
 			Self::deposit_event(Event::RentMadeUnavailable { collectible: unique_id });
 			Ok(())

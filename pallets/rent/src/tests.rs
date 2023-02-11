@@ -3,7 +3,7 @@ use frame_support::{assert_noop, assert_ok};
 use crate::{
 	mock::{self, run_to_block, ExtBuilder, Rent, RuntimeEvent, RuntimeOrigin, System, Test},
 	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap,
-	LessorCollectiblesMap, PendingRentals,
+	LessorCollectiblesMap, PendingRentals, RentableCollectibles,
 };
 
 const COLLECTIBLE_ID: [u8; 16] = [1; 16];
@@ -109,6 +109,8 @@ fn test_set_rentable() {
 				maximum_rental_period: Some(30),
 			}
 		);
+
+		assert_eq!(RentableCollectibles::<Test>::get(), vec![COLLECTIBLE_ID])
 	});
 }
 
