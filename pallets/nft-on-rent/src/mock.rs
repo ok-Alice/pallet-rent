@@ -1,4 +1,4 @@
-use crate::{self as nft_on_rent};
+use crate::{self as nft_on_rent, CollectibleMap};
 use frame_support::{
 	construct_runtime, parameter_types, sp_io,
 	sp_runtime::{
@@ -9,7 +9,7 @@ use frame_support::{
 		MultiSignature,
 	},
 	sp_tracing,
-	traits::{ConstU32, ConstU64, ConstU8, Hooks},
+	traits::{ConstU32, ConstU64, ConstU8, Currency, Hooks},
 	weights::IdentityFee,
 };
 use pallet_balances::AccountData;
@@ -139,6 +139,9 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+type BalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 #[derive(Default)]
 pub struct ExtBuilder;
 
@@ -181,4 +184,27 @@ pub(crate) fn run_to_block(n: BlockNumber) {
 			<NftOnRent as Hooks<u64>>::on_finalize(System::block_number());
 		}
 	}
+}
+
+pub(crate) fn add_collectible(
+	unique_id: [u8; 16],
+	lessor: u64,
+	lessee: Option<u64>,
+	rentable: bool,
+	price_per_block: Option<BalanceOf<Test>>,
+	minimum_rental_period: Option<BlockNumber>,
+	maximum_rental_period: Option<BlockNumber>,
+) {
+	CollectibleMap::<Test>::insert(
+		unique_id,
+		crate::Collectible {
+			unique_id,
+			lessor,
+			lessee,
+			rentable,
+			price_per_block,
+			minimum_rental_period,
+			maximum_rental_period,
+		},
+	);
 }

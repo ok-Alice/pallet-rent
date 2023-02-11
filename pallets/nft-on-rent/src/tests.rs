@@ -1,7 +1,7 @@
 use frame_support::{assert_noop, assert_ok};
 
 use crate::{
-	mock::{run_to_block, ExtBuilder, NftOnRent, RuntimeEvent, RuntimeOrigin, System, Test},
+	mock::{self, run_to_block, ExtBuilder, NftOnRent, RuntimeEvent, RuntimeOrigin, System, Test},
 	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap, PendingRentals,
 };
 
@@ -38,18 +38,7 @@ fn test_mint() {
 #[test]
 fn test_set_rentable() {
 	ExtBuilder::default().build_and_execute(|| {
-		CollectibleMap::<Test>::insert(
-			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: false,
-				price_per_block: None,
-				minimum_rental_period: None,
-				maximum_rental_period: None,
-			},
-		);
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
 
 		NftOnRent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30).unwrap();
 
@@ -71,18 +60,7 @@ fn test_set_rentable() {
 #[test]
 fn test_set_rentable_should_fail_if_not_lessor() {
 	ExtBuilder::default().build_and_execute(|| {
-		CollectibleMap::<Test>::insert(
-			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: false,
-				price_per_block: None,
-				minimum_rental_period: None,
-				maximum_rental_period: None,
-			},
-		);
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
 
 		assert_noop!(
 			NftOnRent::set_rentable(RuntimeOrigin::signed(2), COLLECTIBLE_ID, 100, 10, 30),
@@ -104,20 +82,7 @@ fn test_set_rentable_should_fail_if_collectible_does_not_exist() {
 #[test]
 fn test_rent_should_fail_if_rental_period_is_too_short() {
 	ExtBuilder::default().build_and_execute(|| {
-		let price_per_block: u64 = 100;
-
-		CollectibleMap::<Test>::insert(
-			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
-		);
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, true, Some(100), Some(10), Some(30));
 
 		let rent_period: u32 = 5;
 
@@ -131,20 +96,7 @@ fn test_rent_should_fail_if_rental_period_is_too_short() {
 #[test]
 fn test_rent_should_fail_if_rental_period_is_too_long() {
 	ExtBuilder::default().build_and_execute(|| {
-		let price_per_block: u64 = 100;
-
-		CollectibleMap::<Test>::insert(
-			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
-		);
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, true, Some(100), Some(10), Some(30));
 
 		let rent_period: u32 = 40;
 
@@ -160,18 +112,7 @@ fn test_rent_non_recurring() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
-			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
-		);
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, true, Some(100), Some(10), Some(30));
 
 		let rent_period: u32 = 10;
 
@@ -216,17 +157,14 @@ fn test_pending_rental_process_ending() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		LesseeCollectiblesDoubleMap::<Test>::insert(
@@ -258,7 +196,7 @@ fn test_pending_rental_process_ending() {
 				lessor: 1,
 				lessee: None,
 				rentable: true,
-				price_per_block: Some(100),
+				price_per_block: Some(price_per_block),
 				minimum_rental_period: Some(10),
 				maximum_rental_period: Some(30),
 			}
@@ -274,17 +212,14 @@ fn test_pending_rental_process_recurring() {
 		let price_per_block: u64 = 100;
 
 		// Insert collectible with present lessee
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		// Insert lessee collectible with recurring rental
@@ -352,17 +287,14 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 		let price_per_block: u64 = 100;
 
 		// Insert collectible with present lessee
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		// Insert lessee collectible without reccuring rental
@@ -422,17 +354,14 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 		let price_per_block: u64 = 100;
 
 		// Insert collectible with present lessee
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		// Insert lessee collectible with reccuring rental
@@ -488,17 +417,14 @@ fn test_equip_collectible() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
@@ -517,17 +443,14 @@ fn test_unequip_collectible() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
@@ -555,17 +478,14 @@ fn test_should_not_equip_rented_collectible_as_lessor() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: Some(2),
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			Some(2),
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		assert_noop!(
@@ -580,17 +500,14 @@ fn test_should_not_equip_unrented_collectible_as_lessee() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
 
-		CollectibleMap::<Test>::insert(
+		mock::add_collectible(
 			COLLECTIBLE_ID,
-			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
-				lessor: 1,
-				lessee: None,
-				rentable: true,
-				price_per_block: Some(price_per_block),
-				minimum_rental_period: Some(10),
-				maximum_rental_period: Some(30),
-			},
+			1,
+			None,
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
 		);
 
 		assert_noop!(
