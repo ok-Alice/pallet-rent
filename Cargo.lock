@@ -3613,20 +3613,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nft-on-rent"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "pallet-balances",
- "pallet-randomness-collective-flip",
- "pallet-timestamp",
- "pallet-transaction-payment",
- "parity-scale-codec",
- "scale-info",
-]
-
-[[package]]
 name = "nix"
 version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3692,11 +3678,11 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
- "nft-on-rent",
  "pallet-aura",
  "pallet-balances",
  "pallet-grandpa",
  "pallet-randomness-collective-flip",
+ "pallet-rent",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -3953,6 +3939,20 @@ dependencies = [
  "scale-info",
  "sp-runtime",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-rent"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-randomness-collective-flip",
+ "pallet-timestamp",
+ "pallet-transaction-payment",
+ "parity-scale-codec",
+ "scale-info",
 ]
 
 [[package]]

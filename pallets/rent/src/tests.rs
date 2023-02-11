@@ -1,7 +1,7 @@
 use frame_support::{assert_noop, assert_ok};
 
 use crate::{
-	mock::{self, run_to_block, ExtBuilder, NftOnRent, RuntimeEvent, RuntimeOrigin, System, Test},
+	mock::{self, run_to_block, ExtBuilder, Rent, RuntimeEvent, RuntimeOrigin, System, Test},
 	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap, PendingRentals,
 };
 
@@ -10,12 +10,12 @@ const COLLECTIBLE_ID: [u8; 16] = [1; 16];
 #[test]
 fn test_mint() {
 	ExtBuilder::default().build_and_execute(|| {
-		NftOnRent::mint(RuntimeOrigin::signed(1)).unwrap();
+		Rent::mint(RuntimeOrigin::signed(1)).unwrap();
 
 		let event = System::events().into_iter().last().unwrap();
 
 		match event.event {
-			RuntimeEvent::NftOnRent(Event::CollectibleCreated {
+			RuntimeEvent::Rent(Event::CollectibleCreated {
 				collectible,
 				lessor: _lessor,
 				current_lessee: _current_lessee,
@@ -40,7 +40,7 @@ fn test_set_rentable() {
 	ExtBuilder::default().build_and_execute(|| {
 		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
 
-		NftOnRent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30).unwrap();
+		Rent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30).unwrap();
 
 		assert_eq!(
 			CollectibleMap::<Test>::get(COLLECTIBLE_ID).unwrap(),
@@ -63,7 +63,7 @@ fn test_set_rentable_should_fail_if_not_lessor() {
 		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
 
 		assert_noop!(
-			NftOnRent::set_rentable(RuntimeOrigin::signed(2), COLLECTIBLE_ID, 100, 10, 30),
+			Rent::set_rentable(RuntimeOrigin::signed(2), COLLECTIBLE_ID, 100, 10, 30),
 			Error::<Test>::NotLessor
 		);
 	});
@@ -73,7 +73,7 @@ fn test_set_rentable_should_fail_if_not_lessor() {
 fn test_set_rentable_should_fail_if_collectible_does_not_exist() {
 	ExtBuilder::default().build_and_execute(|| {
 		assert_noop!(
-			NftOnRent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30),
+			Rent::set_rentable(RuntimeOrigin::signed(1), COLLECTIBLE_ID, 100, 10, 30),
 			Error::<Test>::NoCollectible
 		);
 	});
@@ -87,7 +87,7 @@ fn test_rent_should_fail_if_rental_period_is_too_short() {
 		let rent_period: u32 = 5;
 
 		assert_noop!(
-			NftOnRent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false),
+			Rent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false),
 			Error::<Test>::RentalPeriodTooShort
 		);
 	});
@@ -101,7 +101,7 @@ fn test_rent_should_fail_if_rental_period_is_too_long() {
 		let rent_period: u32 = 40;
 
 		assert_noop!(
-			NftOnRent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false),
+			Rent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false),
 			Error::<Test>::RentalPeriodTooLong
 		);
 	});
@@ -116,9 +116,9 @@ fn test_rent_non_recurring() {
 
 		let rent_period: u32 = 10;
 
-		NftOnRent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false).unwrap();
+		Rent::rent(RuntimeOrigin::signed(2), COLLECTIBLE_ID, rent_period, false).unwrap();
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentPayed {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentPayed {
 			lessee: 2,
 			lessor: 1,
 			collectible: COLLECTIBLE_ID,
@@ -183,7 +183,7 @@ fn test_pending_rental_process_ending() {
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodEnded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodEnded {
 			lessor: 1,
 			lessee: 2,
 			collectible: COLLECTIBLE_ID,
@@ -243,12 +243,12 @@ fn test_pending_rental_process_recurring() {
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodAdded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodAdded {
 			collectible_id: COLLECTIBLE_ID,
 			next_rent_block: 21,
 		}));
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentPayed {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentPayed {
 			lessee: 2,
 			lessor: 1,
 			collectible: COLLECTIBLE_ID,
@@ -319,16 +319,16 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 		run_to_block(5);
 
 		// before reaching block 11, set recurring rental
-		assert_ok!(NftOnRent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, true));
+		assert_ok!(Rent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, true));
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodAdded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodAdded {
 			collectible_id: COLLECTIBLE_ID,
 			next_rent_block: 21,
 		}));
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentPayed {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentPayed {
 			lessee: 2,
 			lessor: 1,
 			collectible: COLLECTIBLE_ID,
@@ -386,14 +386,14 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 		run_to_block(5);
 
 		// equip collectible
-		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+		Rent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
 
 		// before reaching block 11, set un-recurring rental
-		assert_ok!(NftOnRent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, false));
+		assert_ok!(Rent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, false));
 
 		run_to_block(11);
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::RentalPeriodEnded {
+		System::assert_has_event(RuntimeEvent::Rent(Event::RentalPeriodEnded {
 			lessor: 1,
 			lessee: 2,
 			collectible: COLLECTIBLE_ID,
@@ -436,9 +436,9 @@ fn test_equip_collectible() {
 			Some(30),
 		);
 
-		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+		Rent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::CollectibleEquipped {
+		System::assert_has_event(RuntimeEvent::Rent(Event::CollectibleEquipped {
 			collectible: COLLECTIBLE_ID,
 			account: 2,
 		}));
@@ -462,18 +462,18 @@ fn test_unequip_collectible() {
 			Some(30),
 		);
 
-		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+		Rent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::CollectibleEquipped {
+		System::assert_has_event(RuntimeEvent::Rent(Event::CollectibleEquipped {
 			collectible: COLLECTIBLE_ID,
 			account: 2,
 		}));
 
 		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![COLLECTIBLE_ID]);
 
-		NftOnRent::unequip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+		Rent::unequip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
 
-		System::assert_has_event(RuntimeEvent::NftOnRent(Event::CollectibleUnequipped {
+		System::assert_has_event(RuntimeEvent::Rent(Event::CollectibleUnequipped {
 			collectible: COLLECTIBLE_ID,
 			account: 2,
 		}));
@@ -498,7 +498,7 @@ fn test_should_not_equip_rented_collectible_as_lessor() {
 		);
 
 		assert_noop!(
-			NftOnRent::equip_collectible(RuntimeOrigin::signed(1), COLLECTIBLE_ID),
+			Rent::equip_collectible(RuntimeOrigin::signed(1), COLLECTIBLE_ID),
 			Error::<Test>::NotAllowedWhileRented
 		);
 	});
@@ -520,7 +520,7 @@ fn test_should_not_equip_unrented_collectible_as_lessee() {
 		);
 
 		assert_noop!(
-			NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID),
+			Rent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID),
 			Error::<Test>::NotLessor
 		);
 	});

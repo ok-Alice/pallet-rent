@@ -1,4 +1,4 @@
-use crate::{self as nft_on_rent, CollectibleMap};
+use crate::{self as pallet_rent, CollectibleMap};
 use frame_support::{
 	construct_runtime, parameter_types, sp_io,
 	sp_runtime::{
@@ -67,7 +67,7 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-		NftOnRent: nft_on_rent::{Pallet, Call, Storage, Event<T>},
+		Rent: pallet_rent::{Pallet, Call, Storage, Event<T>},
 		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage},
 	}
 );
@@ -175,13 +175,13 @@ pub const BLOCK_TIME: u64 = 1000;
 /// a block import/propose process where we first initialize the block, then execute some stuff (not
 /// in the function), and then finalize the block.
 pub(crate) fn run_to_block(n: BlockNumber) {
-	<NftOnRent as Hooks<u64>>::on_finalize(System::block_number());
+	<Rent as Hooks<u64>>::on_finalize(System::block_number());
 	for b in (System::block_number() + 1)..=n.into() {
 		System::set_block_number(b);
-		NftOnRent::on_initialize(b);
+		Rent::on_initialize(b);
 		Timestamp::set_timestamp(System::block_number() * BLOCK_TIME + INIT_TIMESTAMP);
 		if b != n as u64 {
-			<NftOnRent as Hooks<u64>>::on_finalize(System::block_number());
+			<Rent as Hooks<u64>>::on_finalize(System::block_number());
 		}
 	}
 }
