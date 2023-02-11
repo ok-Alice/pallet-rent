@@ -9,7 +9,7 @@ The Rent module module provides functionality for non-fungible asset rental mana
 - Asset Minting
 - Asset Renting
 - Asset Partial Ownership
-- Asset Destruction
+- Asset Burning
 
 To use it in your runtime, you need to implement the assets pallet_rent::Config.
 
@@ -21,7 +21,7 @@ The supported dispatchable functions are documented in the pallet_rent::Call enu
 - Asset Minting: The process of creating a new non-fungible asset.
 - Asset Renting: The process of renting a non-fungible asset.
 - Asset Partial Ownership: The process of enabling partial ownership of a non-fungible asset ot a lessee.
-- Asset Destruction: The process of destroying a non-fungible asset.
+- Asset Burning: The process of burning a non-fungible asset.
 - Lessor: The account that owns a non-fungible asset and allows it to be rented.
 - Lessee: The account that rents a non-fungible asset.
 
@@ -34,13 +34,14 @@ The Pallet-Rent pallet in Substrate is designed to make the following possible:
 - Automatically process rent payments from the lessee to the lessor.
 - Allow an account to define the rent payment method for a non-fungible asset.
 - Allow an account to rent a non-fungible asset for a specified period of time (in blocks) with optional auto-renewal.
-- Allow an account to destroy a non-fungible asset.
+- Allow an account to burn a non-fungible asset.
 
 ## Interface
 
 ### Dispatchables
 
 - `mint` - Mint a new non-fungible asset.
+- `burn` - Destroy a non-fungible asset (only when there is no lessee - use `set_unrentable` and then `burn`).
 - `set_rentable` - As a lessor, Set a non-fungible asset available for rent.
 - `set_unrentable` - As a lessor, Set a non-fungible asset unavailable for rent.
 - `rent` - As a lessee, Rent a non-fungible asset.

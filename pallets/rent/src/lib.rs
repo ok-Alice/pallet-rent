@@ -76,6 +76,11 @@ pub mod pallet {
 		pub maximum_rental_period: Option<u32>,
 	}
 
+	/// Maps the account id to the owned collectibles.
+	#[pallet::storage]
+	pub(super) type LessorCollectiblesMap<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
+
 	/// Maps the Collectible struct to the unique_id.
 	#[pallet::storage]
 	pub(super) type CollectibleMap<T: Config> =
@@ -174,6 +179,8 @@ pub mod pallet {
 		NotAllowedWhileRented,
 		/// Account reached max equiped collectibles.
 		TooManyCollectiblesEquiped,
+		/// Account reached max owned collectibles.
+		TooManyCollectiblesOwned,
 	}
 
 	// Pallet callable functions
@@ -193,9 +200,31 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Update the collectible price and write to storage.
+		/// Destroy a collectible.
 		#[pallet::weight(0)]
 		#[pallet::call_index(1)]
+		pub fn burn(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			let collectible =
+				CollectibleMap::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+
+			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+			ensure!(collectible.lessee == None, Error::<T>::NotAllowedWhileRented);
+
+			CollectibleMap::<T>::remove(&unique_id);
+
+			let mut lessor_collectibles =
+				LessorCollectiblesMap::<T>::get(&sender).unwrap_or_default();
+			lessor_collectibles.retain(|&x| x != unique_id);
+			LessorCollectiblesMap::<T>::insert(&sender, lessor_collectibles);
+
+			Ok(())
+		}
+
+		/// Update the collectible price and write to storage.
+		#[pallet::weight(0)]
+		#[pallet::call_index(2)]
 		pub fn set_rentable(
 			origin: OriginFor<T>,
 			unique_id: [u8; 16],
@@ -366,7 +395,8 @@ pub mod pallet {
 			};
 
 			let mut vec = AccountEquipsMap::<T>::get(&account).unwrap_or_default();
-			vec.try_push(unique_id).map_err(|_| Error::<T>::TooManyCollectiblesEquiped)?;
+			vec.try_push(unique_id.clone())
+				.map_err(|_| Error::<T>::TooManyCollectiblesEquiped)?;
 			AccountEquipsMap::<T>::insert(&account, vec);
 
 			Self::deposit_event(Event::CollectibleEquipped {
@@ -418,7 +448,14 @@ pub mod pallet {
 				Error::<T>::DuplicateCollectible
 			);
 
-			CollectibleMap::<T>::insert(collectible.unique_id, collectible);
+			CollectibleMap::<T>::insert(collectible.unique_id, &collectible);
+
+			let mut lessor_collectibles =
+				LessorCollectiblesMap::<T>::get(&lessor).unwrap_or_default();
+			lessor_collectibles
+				.try_push(collectible.unique_id)
+				.map_err(|_| Error::<T>::TooManyCollectiblesOwned)?;
+			LessorCollectiblesMap::<T>::insert(&lessor, lessor_collectibles);
 
 			Self::deposit_event(Event::CollectibleCreated {
 				collectible: unique_id,

@@ -2,7 +2,8 @@ use frame_support::{assert_noop, assert_ok};
 
 use crate::{
 	mock::{self, run_to_block, ExtBuilder, Rent, RuntimeEvent, RuntimeOrigin, System, Test},
-	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap, PendingRentals,
+	AccountEquipsMap, CollectibleMap, Error, Event, LesseeCollectiblesDoubleMap,
+	LessorCollectiblesMap, PendingRentals,
 };
 
 const COLLECTIBLE_ID: [u8; 16] = [1; 16];
@@ -29,9 +30,63 @@ fn test_mint() {
 				assert_eq!(collectible.rentable, false);
 				assert_eq!(collectible.minimum_rental_period, None);
 				assert_eq!(collectible.maximum_rental_period, None);
+
+				let lessor_collectibles = LessorCollectiblesMap::<Test>::get(1).unwrap();
+
+				assert_eq!(lessor_collectibles.len(), 1);
+				assert_eq!(lessor_collectibles[0], collectible.unique_id);
 			},
 			_ => panic!("Unexpected event"),
 		};
+	});
+}
+
+#[test]
+fn test_burn() {
+	ExtBuilder::default().build_and_execute(|| {
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
+
+		Rent::burn(RuntimeOrigin::signed(1), COLLECTIBLE_ID).unwrap();
+
+		assert!(!CollectibleMap::<Test>::contains_key(COLLECTIBLE_ID));
+
+		let lessor_collectibles = LessorCollectiblesMap::<Test>::get(1).unwrap();
+
+		assert_eq!(lessor_collectibles.len(), 0);
+	});
+}
+
+#[test]
+fn test_burn_should_fail_if_not_lessor() {
+	ExtBuilder::default().build_and_execute(|| {
+		mock::add_collectible(COLLECTIBLE_ID, 1, None, false, None, None, None);
+
+		assert_noop!(
+			Rent::burn(RuntimeOrigin::signed(2), COLLECTIBLE_ID),
+			Error::<Test>::NotLessor
+		);
+	});
+}
+
+#[test]
+fn test_burn_should_fail_if_collectible_does_not_exist() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_noop!(
+			Rent::burn(RuntimeOrigin::signed(1), COLLECTIBLE_ID),
+			Error::<Test>::NoCollectible
+		);
+	});
+}
+
+#[test]
+fn test_burn_should_fail_if_collectible_has_lessee() {
+	ExtBuilder::default().build_and_execute(|| {
+		mock::add_collectible(COLLECTIBLE_ID, 1, Some(2), false, None, None, None);
+
+		assert_noop!(
+			Rent::burn(RuntimeOrigin::signed(1), COLLECTIBLE_ID),
+			Error::<Test>::NotAllowedWhileRented
+		);
 	});
 }
 
