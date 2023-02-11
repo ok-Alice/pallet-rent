@@ -203,6 +203,9 @@ fn test_pending_rental_process_ending() {
 		);
 
 		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
+
+		// Check collectible is no equipped by lessee
+		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![]);
 	});
 }
 
@@ -382,6 +385,9 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 
 		run_to_block(5);
 
+		// equip collectible
+		NftOnRent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID).unwrap();
+
 		// before reaching block 11, set un-recurring rental
 		assert_ok!(NftOnRent::set_recurring(RuntimeOrigin::signed(2), COLLECTIBLE_ID, false));
 
@@ -409,6 +415,9 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 
 		// Check collectible is no longer rented by lessee
 		assert_eq!(LesseeCollectiblesDoubleMap::<Test>::get(2, COLLECTIBLE_ID), None);
+
+		// Check collectible is no equipped by lessee
+		assert_eq!(AccountEquipsMap::<Test>::get(2).unwrap_or_default(), vec![]);
 	});
 }
 
