@@ -594,13 +594,19 @@ pub mod pallet {
 
 				// Add the rental period again if recurring
 				if rental_config.recurring {
-					Self::_append_pending_rental_to_available_block(
+					let next_rent_block = Self::_append_pending_rental_to_available_block(
 						None,
 						rental_config.rental_periodic_interval,
 						collectible_id,
 						&lessee,
 					)
 					.unwrap();
+
+					LesseeCollectiblesDoubleMap::<T>::insert(
+						&lessee,
+						&collectible_id,
+						RentalPeriodConfig { next_rent_block, ..rental_config },
+					);
 				}
 			}
 
