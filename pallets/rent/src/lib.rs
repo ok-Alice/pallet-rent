@@ -186,6 +186,8 @@ pub mod pallet {
 		TooManyCollectiblesOwned,
 		/// Not enough balance to rent collectible.
 		NotEnoughBalance,
+		/// Minimum must be less or equal than maximum.
+		MinimumMustBeLessThanMaximum,
 	}
 
 	// Pallet callable functions
@@ -241,6 +243,11 @@ pub mod pallet {
 			let mut collectible =
 				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+			ensure!(
+				minimum_rental_period <= maximum_rental_period,
+				Error::<T>::MinimumMustBeLessThanMaximum
+			);
+			ensure!(collectible.lessee == None, Error::<T>::NotAllowedWhileRented);
 
 			collectible.price_per_block = Some(price_per_block);
 			collectible.rentable = true;
