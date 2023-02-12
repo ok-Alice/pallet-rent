@@ -2,6 +2,12 @@
 
 A simple and secure module for making non-fungible assets rentable.
 
+## How to run
+
+To test out the `pallet-rent` module, you can run the `xcodecraft/pallet-rent` docker image published to dockerhub using the following command.
+
+`docker run -p 9944:9944 xcodecraft/pallet-rent --dev --unsafe-ws-external`
+
 ## Overview
 
 The Rent module module provides functionality for non-fungible asset rental management, including:
