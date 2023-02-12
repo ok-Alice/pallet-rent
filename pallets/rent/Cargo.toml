@@ -3,7 +3,7 @@ name = "pallet-rent"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/ok-Alice/nft-on-rent"
+repository = "https://github.com/ok-Alice/pallet-rent"
 description = "NFT rent management pallet"
 readme = "README.md"
 
