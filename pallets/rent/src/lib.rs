@@ -66,19 +66,14 @@ pub mod pallet {
 		pub maximum_rental_period: Option<u32>,
 	}
 
-	/// Maps the account id to the owned collectibles.
-	#[pallet::storage]
-	pub(super) type LessorCollectibles<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
-
 	/// Maps the Collectible struct to the unique_id.
 	#[pallet::storage]
 	pub(super) type Collectibles<T: Config> = StorageMap<_, Twox64Concat, [u8; 16], Collectible<T>>;
 
-	/// List of rentable collectibles.
+	/// Maps the account id to the owned collectibles.
 	#[pallet::storage]
-	pub(super) type RentableCollectibles<T: Config> =
-		StorageValue<_, BoundedVec<[u8; 16], T::MaximumOwned>, ValueQuery>;
+	pub(super) type LessorCollectibles<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
 
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
@@ -98,6 +93,11 @@ pub mod pallet {
 		[u8; 16],
 		RentalPeriodConfig<T>,
 	>;
+
+	/// List of rentable collectibles.
+	#[pallet::storage]
+	pub(super) type RentableCollectibles<T: Config> =
+		StorageValue<_, BoundedVec<[u8; 16], T::MaximumOwned>, ValueQuery>;
 
 	/// Track rental periods.
 	#[pallet::storage]
