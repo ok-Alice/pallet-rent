@@ -197,9 +197,6 @@ pub mod pallet {
 	// Pallet callable functions
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Create a new unique collectible.
-		///
-		/// The actual collectible creation is done in the `mint()` function.
 		#[pallet::weight(0)]
 		#[pallet::call_index(0)]
 		pub fn mint(origin: OriginFor<T>) -> DispatchResult {
@@ -211,7 +208,6 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Destroy a collectible.
 		#[pallet::weight(0)]
 		#[pallet::call_index(1)]
 		pub fn burn(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
@@ -232,7 +228,6 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Update the collectible price and write to storage.
 		#[pallet::weight(0)]
 		#[pallet::call_index(2)]
 		pub fn set_rentable(
