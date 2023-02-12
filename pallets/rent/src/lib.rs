@@ -2,7 +2,7 @@
 //!
 //! The Rent pallet provides functionality for renting collectibles.
 //!
-//! ### Terminology
+//! ## Terminology
 //!
 //! - Lessor: The account that owns a collectible and can rent it.
 //! - Lessee: The account that rents a collectible.
