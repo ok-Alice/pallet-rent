@@ -665,6 +665,28 @@ fn test_should_not_equip_rented_collectible_as_lessor() {
 }
 
 #[test]
+fn test_should_not_equip_rentable_collectible_as_lessor() {
+	ExtBuilder::default().build_and_execute(|| {
+		let price_per_block: u64 = 100;
+
+		mock::add_collectible(
+			COLLECTIBLE_ID,
+			1,
+			None,
+			true,
+			Some(price_per_block),
+			Some(10),
+			Some(30),
+		);
+
+		assert_noop!(
+			Rent::equip_collectible(RuntimeOrigin::signed(1), COLLECTIBLE_ID),
+			Error::<Test>::NotAllowedWhileRented
+		);
+	});
+}
+
+#[test]
 fn test_should_not_equip_unrented_collectible_as_lessee() {
 	ExtBuilder::default().build_and_execute(|| {
 		let price_per_block: u64 = 100;
@@ -681,7 +703,7 @@ fn test_should_not_equip_unrented_collectible_as_lessee() {
 
 		assert_noop!(
 			Rent::equip_collectible(RuntimeOrigin::signed(2), COLLECTIBLE_ID),
-			Error::<Test>::NotLessor
+			Error::<Test>::NoAccountFoundForCollectible
 		);
 	});
 }

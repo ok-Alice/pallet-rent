@@ -164,8 +164,10 @@ pub mod pallet {
 		DuplicateCollectible,
 		/// The collectible doesn't exist
 		NoCollectible,
-		/// You are not the lessor of this collectible
+		/// You are not the lessor of this collectible.
 		NotLessor,
+		/// You are not the lessee of this collectible.
+		NotLessee,
 		/// You are already the lessee of this collectible
 		AlreadyRented,
 		/// The accounds can't exceed the maximum number of collectibles.
@@ -188,6 +190,8 @@ pub mod pallet {
 		NotEnoughBalance,
 		/// Minimum must be less or equal than maximum.
 		MinimumMustBeLessThanMaximum,
+		/// No account found associated with collectible.
+		NoAccountFoundForCollectible,
 	}
 
 	// Pallet callable functions
@@ -254,7 +258,7 @@ pub mod pallet {
 			collectible.minimum_rental_period = Some(minimum_rental_period);
 			collectible.maximum_rental_period = Some(maximum_rental_period);
 
-			Collectibles::<T>::insert(&unique_id, collectible);
+			Collectibles::<T>::insert(&unique_id, &collectible);
 
 			let mut rentable_collectibles = RentableCollectibles::<T>::get();
 
@@ -263,6 +267,13 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::TooManyCollectibles)?;
 
 			RentableCollectibles::<T>::put(rentable_collectibles);
+
+			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+
+			Self::deposit_event(Event::CollectibleUnequipped {
+				account: sender,
+				collectible: unique_id,
+			});
 
 			Self::deposit_event(Event::RentMadeAvailable {
 				collectible: unique_id,
@@ -377,15 +388,16 @@ pub mod pallet {
 			let collectible =
 				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
 
-			let account = match collectible.lessee {
-				Some(lessee) => {
-					ensure!(lessee == sender, Error::<T>::NotAllowedWhileRented);
-					lessee
-				},
-				None => {
-					ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
-					collectible.lessor
-				},
+			let account: T::AccountId;
+
+			if collectible.lessor == sender {
+				ensure!(!collectible.rentable, Error::<T>::NotAllowedWhileRented);
+				account = collectible.lessor;
+			} else if let Some(lessee) = collectible.lessee {
+				ensure!(lessee == sender, Error::<T>::NotLessee);
+				account = lessee;
+			} else {
+				return Err(Error::<T>::NoAccountFoundForCollectible.into())
 			};
 
 			let mut vec = AccountEquips::<T>::get(&account).unwrap_or_default();
@@ -515,8 +527,6 @@ pub mod pallet {
 			LesseeCollectibles::<T>::insert(&lessee, &unique_id, &rental_config);
 
 			Collectibles::<T>::insert(&unique_id, &collectible);
-
-			Self::_unequip_collectible_from_account(collectible.lessor.clone(), unique_id);
 
 			Ok(())
 		}
