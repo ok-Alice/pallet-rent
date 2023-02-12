@@ -50,5 +50,5 @@ The Pallet-Rent pallet in Substrate is designed to make the following possible:
 
 **Testing dispatchables**
 
-- `equip` - Equip a non-fungible asset. (This is to demonstrate partial ownership)
-- `unequip` - Unequip a non-fungible asset. (This is to demonstrate partial ownership)
+- `equip_collectible` - Equip a non-fungible asset. (This is to demonstrate partial ownership)
+- `unequip_collectible` - Unequip a non-fungible asset. (This is to demonstrate partial ownership)
