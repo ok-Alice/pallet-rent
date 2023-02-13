@@ -265,11 +265,6 @@ pub mod pallet {
 
 			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
 
-			Self::deposit_event(Event::CollectibleUnequipped {
-				account: sender,
-				collectible: unique_id,
-			});
-
 			Self::deposit_event(Event::RentMadeAvailable {
 				collectible: unique_id,
 				price_per_block,
@@ -747,8 +742,16 @@ pub mod pallet {
 
 		fn _unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
 			let mut equiped = AccountEquips::<T>::get(&account).unwrap_or_default();
+			let initial_size = equiped.len().clone();
 			equiped.retain(|c| c != &collectible_id);
-			AccountEquips::<T>::insert(&account, equiped);
+			AccountEquips::<T>::insert(&account, &equiped);
+
+			if initial_size != equiped.len() {
+				Self::deposit_event(Event::CollectibleUnequipped {
+					account,
+					collectible: collectible_id,
+				});
+			}
 		}
 	}
 
