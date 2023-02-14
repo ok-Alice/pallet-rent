@@ -1,3 +1,3 @@
 # Pallet Rent
 
-Please read the `pallet-rent` [README](./README.md) to get started.
+Please read the `pallet-rent` [README](./pallets/rent/README.md) to get started.
