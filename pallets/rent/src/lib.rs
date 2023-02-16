@@ -225,6 +225,8 @@ pub mod pallet {
 			lessor_collectibles.retain(|&x| x != unique_id);
 			LessorCollectibles::<T>::insert(&sender, lessor_collectibles);
 
+			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+
 			Ok(())
 		}
 

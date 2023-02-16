@@ -52,7 +52,10 @@ fn test_burn() {
 
 		let lessor_collectibles = LessorCollectibles::<Test>::get(1).unwrap();
 
-		assert_eq!(lessor_collectibles.len(), 0);
+		assert!(lessor_collectibles.is_empty());
+
+		let equips = AccountEquips::<Test>::get(1).unwrap_or_default();
+		assert!(equips.is_empty());
 	});
 }
 
