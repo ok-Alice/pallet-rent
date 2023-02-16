@@ -20,7 +20,7 @@ docker tag xcodecraft/pallet-rent gcr.io/hack-at-the-edge/pallet-rent
 docker push gcr.io/hack-at-the-edge/pallet-rent
 ```
 
-- Deploy the image to kubernetes
+- Deploy the image to Google Cloud Run
 
 ```bash
 gcloud run deploy pallet-rent \
