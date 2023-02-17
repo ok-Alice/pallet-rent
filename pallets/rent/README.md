@@ -6,6 +6,7 @@ A simple and secure module for making non-fungible assets rentable.
 
 ## Demo's
 https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Fpallet-rent-pgvftrncea-ew.a.run.app%3A443#/explorer
+
 https://pallet-rent-character-loadout-pgvftrncea-ew.a.run.app/
 
 ## How to run
