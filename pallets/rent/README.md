@@ -4,6 +4,10 @@ A simple and secure module for making non-fungible assets rentable.
 
 [Pallet Rent Project Overview](https://michaelassaf.notion.site/Pallet-Rent-f3c3ecfce18d483eba9dea675721954d)
 
+## Demo's
+https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Fpallet-rent-pgvftrncea-ew.a.run.app%3A443#/explorer
+https://pallet-rent-character-loadout-pgvftrncea-ew.a.run.app/
+
 ## How to run
 
 To test out the `pallet-rent` module, you can run the `xcodecraft/pallet-rent` docker image published to dockerhub using the following command.
