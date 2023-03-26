@@ -474,12 +474,6 @@ pub mod pallet {
 			let total_rent_price =
 				collectible.price_per_block.unwrap() * rent_periodic_interval.into();
 
-			// check if lessee has enough balance to pay for the rental
-			ensure!(
-				T::Currency::free_balance(&lessee) >= total_rent_price.into(),
-				Error::<T>::NotEnoughBalance
-			);
-
 			Self::transfer_funds(&lessee, &lessor, total_rent_price)?;
 
 			Self::deposit_event(Event::RentPayed {
@@ -529,12 +523,6 @@ pub mod pallet {
 			let total_rent_price = convert_to_primitive::<T::BlockNumber, u32>(blocks).unwrap() *
 				convert_to_primitive::<BalanceOf<T>, u32>(collectible.price_per_block.unwrap())
 					.unwrap();
-
-			// check if lessee has enough balance to pay for the rental
-			ensure!(
-				T::Currency::free_balance(&lessee) >= total_rent_price.into(),
-				Error::<T>::NotEnoughBalance
-			);
 
 			Self::transfer_funds(&lessee, &collectible.lessor, total_rent_price.into())?;
 
@@ -777,6 +765,9 @@ pub mod pallet {
 			to: &T::AccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
+			// check if lessee has enough balance to pay for the rental
+			ensure!(T::Currency::free_balance(from) >= amount, Error::<T>::NotEnoughBalance);
+
 			T::Currency::transfer(
 				from,
 				to,
