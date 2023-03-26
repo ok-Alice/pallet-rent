@@ -49,6 +49,8 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
 
+	type CollectibleId = [u8; 16];
+
 	type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -56,7 +58,7 @@ pub mod pallet {
 	#[scale_info(skip_type_params(T))]
 	pub struct Collectible<T: Config> {
 		// Unsigned integers of 16 bytes to represent a unique identifier
-		pub collectible_id: [u8; 16],
+		pub collectible_id: CollectibleId,
 		// `None` assumes not for sale
 		pub price_per_block: Option<BalanceOf<T>>,
 		pub lessor: T::AccountId,
@@ -68,12 +70,13 @@ pub mod pallet {
 
 	/// Maps the Collectible struct to the collectible_id.
 	#[pallet::storage]
-	pub(super) type Collectibles<T: Config> = StorageMap<_, Twox64Concat, [u8; 16], Collectible<T>>;
+	pub(super) type Collectibles<T: Config> =
+		StorageMap<_, Twox64Concat, CollectibleId, Collectible<T>>;
 
 	/// Maps the account id to the owned collectibles.
 	#[pallet::storage]
 	pub(super) type LessorCollectibles<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
+		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<CollectibleId, T::MaximumOwned>>;
 
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
@@ -90,14 +93,14 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		Twox64Concat,
-		[u8; 16],
+		CollectibleId,
 		RentalPeriodConfig<T>,
 	>;
 
 	/// List of rentable collectibles.
 	#[pallet::storage]
 	pub(super) type RentableCollectibles<T: Config> =
-		StorageValue<_, BoundedVec<[u8; 16], T::MaximumOwned>, ValueQuery>;
+		StorageValue<_, BoundedVec<CollectibleId, T::MaximumOwned>, ValueQuery>;
 
 	/// Track rental periods.
 	#[pallet::storage]
@@ -105,55 +108,59 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		T::BlockNumber,
-		BoundedVec<([u8; 16], T::AccountId), T::MaximumRentablesPerBlock>,
+		BoundedVec<(CollectibleId, T::AccountId), T::MaximumRentablesPerBlock>,
 		ValueQuery,
 	>;
 
 	#[pallet::storage]
 	pub(super) type AccountEquips<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<[u8; 16], T::MaximumOwned>>;
+		StorageMap<_, Twox64Concat, T::AccountId, BoundedVec<CollectibleId, T::MaximumOwned>>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new collectible was successfully created.
 		CollectibleCreated {
-			collectible: [u8; 16],
+			collectible: CollectibleId,
 			lessor: T::AccountId,
 			current_lessee: Option<T::AccountId>,
 		},
 		/// A collectible was successfully transferred.
-		TransferSucceeded { from: T::AccountId, to: T::AccountId, collectible: [u8; 16] },
+		TransferSucceeded { from: T::AccountId, to: T::AccountId, collectible: CollectibleId },
 		/// The price of a collectible was successfully set.
-		RentMadeAvailable { collectible: [u8; 16], price_per_block: BalanceOf<T> },
+		RentMadeAvailable { collectible: CollectibleId, price_per_block: BalanceOf<T> },
 		/// A collectible was successfully rented.
 		RentPayed {
 			lessor: T::AccountId,
 			lessee: T::AccountId,
-			collectible: [u8; 16],
+			collectible: CollectibleId,
 			total_rent_price: BalanceOf<T>,
 		},
 		/// A rental period was successfully added.
-		RentalPeriodAdded { collectible: [u8; 16], next_rent_block: T::BlockNumber },
+		RentalPeriodAdded { collectible: CollectibleId, next_rent_block: T::BlockNumber },
 		/// A rental period was successfully added.
-		RentalPeriodRemoved { collectible: [u8; 16], at_block: T::BlockNumber },
+		RentalPeriodRemoved { collectible: CollectibleId, at_block: T::BlockNumber },
 		/// A rental period was successfully ended.
-		RentalEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
+		RentalEnded { lessor: T::AccountId, lessee: T::AccountId, collectible: CollectibleId },
 		/// Collectible rent made unavailable.
-		RentMadeUnavailable { collectible: [u8; 16] },
+		RentMadeUnavailable { collectible: CollectibleId },
 		/// Collectible rent made recurring.
-		RentalSetRecurring { collectible: [u8; 16], recurring: bool },
+		RentalSetRecurring { collectible: CollectibleId, recurring: bool },
 		/// Cancelled recurring rental since payment was not made.
-		ErrorTransferingRent { lessor: T::AccountId, lessee: T::AccountId, collectible: [u8; 16] },
+		ErrorTransferingRent {
+			lessor: T::AccountId,
+			lessee: T::AccountId,
+			collectible: CollectibleId,
+		},
 		/// Collectible equipped by account.
-		CollectibleEquipped { account: T::AccountId, collectible: [u8; 16] },
+		CollectibleEquipped { account: T::AccountId, collectible: CollectibleId },
 		/// Collectible unequipped by account.
-		CollectibleUnequipped { account: T::AccountId, collectible: [u8; 16] },
+		CollectibleUnequipped { account: T::AccountId, collectible: CollectibleId },
 		/// Rental extended.
 		RentalExtended {
 			lessor: T::AccountId,
 			lessee: T::AccountId,
-			collectible: [u8; 16],
+			collectible: CollectibleId,
 			next_rent_block: T::BlockNumber,
 		},
 	}
@@ -212,7 +219,7 @@ pub mod pallet {
 
 		#[pallet::weight(0)]
 		#[pallet::call_index(1)]
-		pub fn burn(origin: OriginFor<T>, collectible_id: [u8; 16]) -> DispatchResult {
+		pub fn burn(origin: OriginFor<T>, collectible_id: CollectibleId) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let collectible = Self::fetch_collectible(collectible_id)?;
@@ -235,7 +242,7 @@ pub mod pallet {
 		#[pallet::call_index(2)]
 		pub fn set_rentable(
 			origin: OriginFor<T>,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			price_per_block: BalanceOf<T>,
 			minimum_rental_period: u32,
 			maximum_rental_period: u32,
@@ -278,7 +285,7 @@ pub mod pallet {
 		#[pallet::call_index(3)]
 		pub fn rent(
 			origin: OriginFor<T>,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			blocks: u32,
 			recurring: bool,
 		) -> DispatchResult {
@@ -304,7 +311,10 @@ pub mod pallet {
 
 		#[pallet::weight(0)]
 		#[pallet::call_index(4)]
-		pub fn set_unrentable(origin: OriginFor<T>, collectible_id: [u8; 16]) -> DispatchResult {
+		pub fn set_unrentable(
+			origin: OriginFor<T>,
+			collectible_id: CollectibleId,
+		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let mut collectible = Self::fetch_collectible(collectible_id)?;
@@ -326,7 +336,7 @@ pub mod pallet {
 		#[pallet::call_index(5)]
 		pub fn set_recurring(
 			origin: OriginFor<T>,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			recurring: bool,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -358,7 +368,7 @@ pub mod pallet {
 		#[pallet::call_index(6)]
 		pub fn extend_rent(
 			origin: OriginFor<T>,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			blocks: T::BlockNumber,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -373,7 +383,10 @@ pub mod pallet {
 
 		#[pallet::weight(0)]
 		#[pallet::call_index(7)]
-		pub fn equip_collectible(origin: OriginFor<T>, collectible_id: [u8; 16]) -> DispatchResult {
+		pub fn equip_collectible(
+			origin: OriginFor<T>,
+			collectible_id: CollectibleId,
+		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let collectible = Self::fetch_collectible(collectible_id)?;
@@ -407,7 +420,7 @@ pub mod pallet {
 		#[pallet::call_index(8)]
 		pub fn unequip_collectible(
 			origin: OriginFor<T>,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -432,8 +445,8 @@ pub mod pallet {
 		// Function to mint a collectible
 		pub fn do_mint(
 			lessor: &T::AccountId,
-			collectible_id: [u8; 16],
-		) -> Result<[u8; 16], DispatchError> {
+			collectible_id: CollectibleId,
+		) -> Result<CollectibleId, DispatchError> {
 			let collectible = Collectible::<T> {
 				collectible_id,
 				price_per_block: None,
@@ -467,7 +480,7 @@ pub mod pallet {
 		}
 
 		fn do_rent_collectible(
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			lessee: T::AccountId,
 			rent_periodic_interval: u32,
 			recurring: bool,
@@ -653,7 +666,7 @@ pub mod pallet {
 	// Pallet helper functions
 	impl<T: Config> Pallet<T> {
 		// Generates and returns the collectible_id
-		fn gen_collectible_id() -> [u8; 16] {
+		fn gen_collectible_id() -> CollectibleId {
 			let random = T::CollectionRandomness::random(&b"collectible_id"[..]).0;
 
 			// Create randomness payload. Multiple collectibles can be generated in the same block,
@@ -671,7 +684,7 @@ pub mod pallet {
 		fn append_pending_rental_to_available_block(
 			starting_block_number: Option<T::BlockNumber>,
 			additional_rental_blocks: u32,
-			collectible_id: [u8; 16],
+			collectible_id: CollectibleId,
 			lessee: &T::AccountId,
 		) -> Result<T::BlockNumber, DispatchError> {
 			let starting_block_number = match starting_block_number {
@@ -719,7 +732,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		fn unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
+		fn unequip_collectible_from_account(account: T::AccountId, collectible_id: CollectibleId) {
 			let mut equiped = AccountEquips::<T>::get(&account).unwrap_or_default();
 			let initial_size = equiped.len().clone();
 			equiped.retain(|c| c != &collectible_id);
@@ -733,7 +746,9 @@ pub mod pallet {
 			}
 		}
 
-		fn fetch_collectible(collectible_id: [u8; 16]) -> Result<Collectible<T>, DispatchError> {
+		fn fetch_collectible(
+			collectible_id: CollectibleId,
+		) -> Result<Collectible<T>, DispatchError> {
 			let collectible = Collectibles::<T>::try_get(&collectible_id)
 				.map_err(|_| Error::<T>::NoCollectible)?;
 
