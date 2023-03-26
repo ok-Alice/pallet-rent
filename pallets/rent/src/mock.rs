@@ -187,7 +187,7 @@ pub(crate) fn run_to_block(n: BlockNumber) {
 }
 
 pub(crate) fn add_collectible(
-	unique_id: [u8; 16],
+	collectible_id: [u8; 16],
 	lessor: u64,
 	lessee: Option<u64>,
 	rentable: bool,
@@ -196,9 +196,9 @@ pub(crate) fn add_collectible(
 	maximum_rental_period: Option<BlockNumber>,
 ) {
 	Collectibles::<Test>::insert(
-		unique_id,
+		collectible_id,
 		crate::Collectible {
-			unique_id,
+			collectible_id,
 			lessor,
 			lessee,
 			rentable,
@@ -209,6 +209,6 @@ pub(crate) fn add_collectible(
 	);
 
 	let mut lessor_collectibles = LessorCollectibles::<Test>::get(&lessor).unwrap_or_default();
-	lessor_collectibles.try_push(unique_id).unwrap();
+	lessor_collectibles.try_push(collectible_id).unwrap();
 	LessorCollectibles::<Test>::insert(&lessor, lessor_collectibles);
 }

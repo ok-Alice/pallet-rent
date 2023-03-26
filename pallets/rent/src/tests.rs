@@ -34,7 +34,7 @@ fn test_mint() {
 				let lessor_collectibles = LessorCollectibles::<Test>::get(1).unwrap();
 
 				assert_eq!(lessor_collectibles.len(), 1);
-				assert_eq!(lessor_collectibles[0], collectible.unique_id);
+				assert_eq!(lessor_collectibles[0], collectible.collectible_id);
 			},
 			_ => panic!("Unexpected event"),
 		};
@@ -103,7 +103,7 @@ fn test_set_rentable() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: None,
 				rentable: true,
@@ -188,7 +188,7 @@ fn test_rent_non_recurring() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: Some(2),
 				rentable: true,
@@ -252,7 +252,7 @@ fn test_pending_rental_process_ending() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: None,
 				rentable: true,
@@ -319,7 +319,7 @@ fn test_pending_rental_process_recurring() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: Some(2),
 				rentable: true,
@@ -399,7 +399,7 @@ fn test_set_recurring_during_ongoing_rental_should_renew_rent() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: Some(2),
 				rentable: true,
@@ -463,7 +463,7 @@ fn test_set_recurring_during_ongoing_rental_should_not_renew_rent() {
 		assert_eq!(
 			Collectibles::<Test>::get(COLLECTIBLE_ID).unwrap(),
 			crate::Collectible {
-				unique_id: COLLECTIBLE_ID,
+				collectible_id: COLLECTIBLE_ID,
 				lessor: 1,
 				lessee: None,
 				rentable: true,
