@@ -164,6 +164,8 @@ pub mod pallet {
 		DuplicateCollectible,
 		/// The collectible doesn't exist
 		NoCollectible,
+		/// No collectible has no lessee
+		NoLessee,
 		/// You are not the lessor of this collectible.
 		NotLessor,
 		/// You are not the lessee of this collectible.
@@ -201,7 +203,7 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		pub fn mint(origin: OriginFor<T>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
-			let collectible_gen_unique_id = Self::_gen_unique_id();
+			let collectible_gen_unique_id = Self::gen_unique_id();
 
 			Self::do_mint(&sender, collectible_gen_unique_id)?;
 
@@ -213,10 +215,9 @@ pub mod pallet {
 		pub fn burn(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			let collectible = Self::fetch_collectible(unique_id)?;
 
-			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+			Self::ensure_user_is_lessor(&sender, &collectible)?;
 			ensure!(collectible.lessee == None, Error::<T>::NotAllowedWhileRented);
 
 			Collectibles::<T>::remove(&unique_id);
@@ -225,7 +226,7 @@ pub mod pallet {
 			lessor_collectibles.retain(|&x| x != unique_id);
 			LessorCollectibles::<T>::insert(&sender, lessor_collectibles);
 
-			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+			Self::unequip_collectible_from_account(sender.clone(), collectible.unique_id);
 
 			Ok(())
 		}
@@ -241,9 +242,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let mut collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+			let mut collectible = Self::fetch_collectible(unique_id)?;
+			Self::ensure_user_is_lessor(&sender, &collectible)?;
 			ensure!(
 				minimum_rental_period <= maximum_rental_period,
 				Error::<T>::MinimumMustBeLessThanMaximum
@@ -265,7 +265,7 @@ pub mod pallet {
 
 			RentableCollectibles::<T>::put(rentable_collectibles);
 
-			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+			Self::unequip_collectible_from_account(sender.clone(), collectible.unique_id);
 
 			Self::deposit_event(Event::RentMadeAvailable {
 				collectible: unique_id,
@@ -282,10 +282,9 @@ pub mod pallet {
 			blocks: u32,
 			recurring: bool,
 		) -> DispatchResult {
-			let lessee = ensure_signed(origin)?;
+			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			let collectible = Self::fetch_collectible(unique_id)?;
 
 			if let Some(minimum_rental_period) = collectible.minimum_rental_period {
 				ensure!(blocks >= minimum_rental_period, Error::<T>::RentalPeriodTooShort);
@@ -295,11 +294,11 @@ pub mod pallet {
 				ensure!(blocks <= maximum_rental_period, Error::<T>::RentalPeriodTooLong);
 			}
 
-			ensure!(collectible.lessor != lessee, Error::<T>::CannotRentOwnCollectible);
+			ensure!(collectible.lessor != sender, Error::<T>::CannotRentOwnCollectible);
 			ensure!(collectible.lessee.is_none(), Error::<T>::RentNotAvailable);
-			ensure!(collectible.lessee != Some(lessee.clone()), Error::<T>::AlreadyRented);
+			ensure!(collectible.lessee != Some(sender.clone()), Error::<T>::AlreadyRented);
 
-			Self::do_rent_collectible(unique_id, lessee, blocks, recurring)?;
+			Self::do_rent_collectible(unique_id, sender, blocks, recurring)?;
 			Ok(())
 		}
 
@@ -308,9 +307,8 @@ pub mod pallet {
 		pub fn set_unrentable(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let mut collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.lessor == sender, Error::<T>::NotLessor);
+			let mut collectible = Self::fetch_collectible(unique_id)?;
+			Self::ensure_user_is_lessor(&sender, &collectible)?;
 
 			collectible.rentable = false;
 
@@ -333,9 +331,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.lessee == Some(sender.clone()), Error::<T>::NotLessor);
+			let collectible = Self::fetch_collectible(unique_id)?;
+			Self::ensure_user_is_lessee(&sender, &collectible)?;
 
 			let lessee_rental = LesseeCollectibles::<T>::get(&sender, &unique_id);
 
@@ -363,9 +360,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
-			ensure!(collectible.lessee == Some(sender.clone()), Error::<T>::NotLessor);
+			let collectible = Self::fetch_collectible(unique_id)?;
+			Self::ensure_user_is_lessee(&sender, &collectible)?;
 
 			Self::do_extend_rent(collectible, blocks)?;
 
@@ -377,16 +373,15 @@ pub mod pallet {
 		pub fn equip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			let collectible = Self::fetch_collectible(unique_id)?;
 
 			let account: T::AccountId;
 
-			if collectible.lessor == sender {
+			if Self::ensure_user_is_lessor(&sender, &collectible).ok().is_some() {
 				ensure!(!collectible.rentable, Error::<T>::NotAllowedWhileRented);
 				account = collectible.lessor;
-			} else if let Some(lessee) = collectible.lessee {
-				ensure!(lessee == sender, Error::<T>::NotLessee);
+			} else if let Some(lessee) = collectible.lessee.clone() {
+				Self::ensure_user_is_lessee(&sender, &collectible)?;
 				account = lessee;
 			} else {
 				return Err(Error::<T>::NoAccountFoundForCollectible.into())
@@ -410,10 +405,12 @@ pub mod pallet {
 		pub fn unequip_collectible(origin: OriginFor<T>, unique_id: [u8; 16]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			let collectible = Self::fetch_collectible(unique_id)?;
+			if !Self::ensure_user_is_lessee(&sender, &collectible).ok().is_some() {
+				Self::ensure_user_is_lessor(&sender, &collectible)?;
+			}
 
-			Self::_unequip_collectible_from_account(sender.clone(), collectible.unique_id);
+			Self::unequip_collectible_from_account(sender.clone(), collectible.unique_id);
 
 			Self::deposit_event(Event::CollectibleUnequipped {
 				account: sender,
@@ -469,8 +466,7 @@ pub mod pallet {
 			rent_periodic_interval: u32,
 			recurring: bool,
 		) -> DispatchResult {
-			let mut collectible =
-				Collectibles::<T>::get(&unique_id).ok_or(Error::<T>::NoCollectible)?;
+			let mut collectible = Self::fetch_collectible(unique_id)?;
 
 			let lessor = &collectible.lessor;
 			let lessee = lessee.clone();
@@ -484,13 +480,7 @@ pub mod pallet {
 				Error::<T>::NotEnoughBalance
 			);
 
-			// Mutating state with a balance transfer, so nothing is allowed to fail after this.
-			T::Currency::transfer(
-				&lessee,
-				&lessor,
-				total_rent_price,
-				frame_support::traits::ExistenceRequirement::KeepAlive,
-			)?;
+			Self::transfer_funds(&lessee, &lessor, total_rent_price)?;
 
 			Self::deposit_event(Event::RentPayed {
 				lessee: lessee.clone(),
@@ -501,7 +491,7 @@ pub mod pallet {
 
 			collectible.lessee = Some(lessee.clone());
 
-			let next_rent_block = Self::_append_pending_rental_to_available_block(
+			let next_rent_block = Self::append_pending_rental_to_available_block(
 				None,
 				rent_periodic_interval,
 				unique_id,
@@ -546,13 +536,7 @@ pub mod pallet {
 				Error::<T>::NotEnoughBalance
 			);
 
-			// transfer rent price to lessor
-			T::Currency::transfer(
-				&lessee,
-				&collectible.lessor,
-				total_rent_price.into(),
-				frame_support::traits::ExistenceRequirement::KeepAlive,
-			)?;
+			Self::transfer_funds(&lessee, &collectible.lessor, total_rent_price.into())?;
 
 			Self::deposit_event(Event::RentPayed {
 				lessee: lessee.clone(),
@@ -574,7 +558,7 @@ pub mod pallet {
 			});
 
 			// Add new rental to pending rentals to extend the rent
-			let next_rent_block = Self::_append_pending_rental_to_available_block(
+			let next_rent_block = Self::append_pending_rental_to_available_block(
 				Some(next_rent_block),
 				convert_to_primitive::<T::BlockNumber, u32>(blocks).unwrap(),
 				collectible.unique_id,
@@ -614,7 +598,7 @@ pub mod pallet {
 					.unwrap();
 
 				if !collectible.rentable || None == collectible.lessee || !rental_config.recurring {
-					Self::_remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
+					Self::remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
 
 					Self::deposit_event(Event::RentalEnded {
 						lessee: lessee.clone(),
@@ -630,13 +614,9 @@ pub mod pallet {
 
 				// Mutating state with a balance transfer, so nothing is allowed to fail after
 				// this.
-				if let Err(_) = T::Currency::transfer(
-					&lessee,
-					&collectible.lessor,
-					total_rent_price,
-					frame_support::traits::ExistenceRequirement::KeepAlive,
-				) {
-					Self::_remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
+				if let Err(_) = Self::transfer_funds(&lessee, &collectible.lessor, total_rent_price)
+				{
+					Self::remove_lessee_from_collectible(&lessee, &mut collectible).unwrap();
 
 					Self::deposit_event(Event::ErrorTransferingRent {
 						lessee: lessee.clone(),
@@ -656,7 +636,7 @@ pub mod pallet {
 
 				// Add the rental period again if recurring
 				if rental_config.recurring {
-					let next_rent_block = Self::_append_pending_rental_to_available_block(
+					let next_rent_block = Self::append_pending_rental_to_available_block(
 						None,
 						rental_config.rental_periodic_interval,
 						collectible_id,
@@ -674,9 +654,12 @@ pub mod pallet {
 
 			PendingRentals::<T>::remove(n);
 		}
+	}
 
+	// Pallet helper functions
+	impl<T: Config> Pallet<T> {
 		// Generates and returns the unique_id
-		fn _gen_unique_id() -> [u8; 16] {
+		fn gen_unique_id() -> [u8; 16] {
 			let random = T::CollectionRandomness::random(&b"unique_id"[..]).0;
 
 			// Create randomness payload. Multiple collectibles can be generated in the same block,
@@ -691,7 +674,7 @@ pub mod pallet {
 			frame_support::Hashable::blake2_128(&encoded_payload)
 		}
 
-		fn _append_pending_rental_to_available_block(
+		fn append_pending_rental_to_available_block(
 			starting_block_number: Option<T::BlockNumber>,
 			additional_rental_blocks: u32,
 			collectible_id: [u8; 16],
@@ -727,7 +710,7 @@ pub mod pallet {
 			Ok(block_number)
 		}
 
-		fn _remove_lessee_from_collectible(
+		fn remove_lessee_from_collectible(
 			lessee: &T::AccountId,
 			collectible: &mut Collectible<T>,
 		) -> DispatchResult {
@@ -737,12 +720,12 @@ pub mod pallet {
 			collectible.lessee = None;
 			Collectibles::<T>::insert(&collectible_id, collectible);
 
-			Self::_unequip_collectible_from_account(lessee.clone(), collectible_id);
+			Self::unequip_collectible_from_account(lessee.clone(), collectible_id);
 
 			Ok(())
 		}
 
-		fn _unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
+		fn unequip_collectible_from_account(account: T::AccountId, collectible_id: [u8; 16]) {
 			let mut equiped = AccountEquips::<T>::get(&account).unwrap_or_default();
 			let initial_size = equiped.len().clone();
 			equiped.retain(|c| c != &collectible_id);
@@ -754,6 +737,54 @@ pub mod pallet {
 					collectible: collectible_id,
 				});
 			}
+		}
+
+		fn fetch_collectible(collectible_id: [u8; 16]) -> Result<Collectible<T>, DispatchError> {
+			let collectible = Collectibles::<T>::try_get(&collectible_id)
+				.map_err(|_| Error::<T>::NoCollectible)?;
+
+			Ok(collectible)
+		}
+
+		fn ensure_user_is_lessee(
+			user: &T::AccountId,
+			collectible: &Collectible<T>,
+		) -> Result<(), Error<T>> {
+			if collectible.lessee.is_none() {
+				return Err(Error::<T>::NoLessee)
+			}
+
+			if collectible.lessee.as_ref().unwrap() != user {
+				return Err(Error::<T>::NotLessee)
+			}
+
+			Ok(())
+		}
+
+		fn ensure_user_is_lessor(
+			user: &T::AccountId,
+			collectible: &Collectible<T>,
+		) -> Result<(), Error<T>> {
+			if collectible.lessor != *user {
+				return Err(Error::<T>::NotLessor)
+			}
+
+			Ok(())
+		}
+
+		fn transfer_funds(
+			from: &T::AccountId,
+			to: &T::AccountId,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::Currency::transfer(
+				from,
+				to,
+				amount,
+				frame_support::traits::ExistenceRequirement::KeepAlive,
+			)?;
+
+			Ok(())
 		}
 	}
 
